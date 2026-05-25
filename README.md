@@ -49,7 +49,7 @@ public partial class MyPlanet : Node3D
 ```
 ## Core Architecture
 
-The framework completely separates pure mathematical data from Godot's rendering engine:
+The plugin completely separates pure mathematical data from Godot's rendering engine:
 
 * **`Hexasphere.cs`** — The main grid manager. It handles the initial icosahedron creation, manages subdivision logic, caches unique vertices using a spatial hash grid, and exposes the final `Tiles` list and raw `MeshDetails`.
 * **`Tile.cs`** — Represents an individual cell on the sphere (either a hexagon or one of the 12 pentagons). It holds references to its boundary points, its center, and a list of its direct `Neighbours`. Includes built-in `ToJson()` serialization.
