@@ -3,4 +3,4 @@
 .mono/
 *.sln
 *.csproj
-.import
+*.import
