@@ -38,7 +38,7 @@ namespace Godot.Hexasphere
 
         private List<Face> ConstructIcosahedron()
         {
-            const float tao = Mathf.Pi / 2;
+            float tao = (1.0f + Mathf.Sqrt(5.0f)) / 2.0f;
             const float s = 100f;
             float ts = tao * s;
 

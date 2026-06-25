@@ -23,7 +23,7 @@ Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
 
 std::vector<Face *> Hexasphere::construct_icosahedron()
 {
-    const float tao = Math_PI / 2.0f;
+    const float tao = (1.0f + Math::sqrt(5.0f)) / 2.0f;
     const float s = 100.0f;
     float ts = tao * s;
 

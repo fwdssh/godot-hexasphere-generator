@@ -1,13 +1,24 @@
 using Godot;
 using Godot.Collections;
+using System;
 
-public class NativeHexasphere
+public class NativeHexasphere : IDisposable
 {
     private GodotObject _native;
+    private bool _disposed;
 
     public NativeHexasphere()
     {
         _native = ClassDB.Instantiate("NativeHexasphere").AsGodotObject();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _native?.Dispose();
+        _native = null;
+        GC.SuppressFinalize(this);
     }
 
     public void Generate(float radius, int divisions, float hexSize)
@@ -28,6 +39,11 @@ public class NativeHexasphere
     public Vector3[] GetTilePoints(int tileIdx)
     {
         return (Vector3[])_native.Call("get_tile_points", tileIdx);
+    }
+
+    public int[] GetTileFaces(int tileIdx)
+    {
+        return (int[])_native.Call("get_tile_faces", tileIdx);
     }
 
     public Dictionary GetBuildData()

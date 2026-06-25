@@ -16,6 +16,7 @@ public partial class HexasphereVisualController : Node
     private int            _tileCount;
 
     private bool _isBorderVisible = true;
+    private float _roughness = 0.6f;
 
     public void SetNativeHexasphere(NativeHexasphere hex)
     {
@@ -23,6 +24,11 @@ public partial class HexasphereVisualController : Node
     }
 
     public void SetBorderColor(Color color) => _borderRenderer?.SetBorderColor(color);
+    public void SetRoughness(float value)
+    {
+        _roughness = value;
+        _planetMaterial?.SetShaderParameter("roughness", value);
+    }
 
     public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible)
     {
@@ -60,7 +66,8 @@ public partial class HexasphereVisualController : Node
         _planetMaterial.SetShaderParameter("tile_colors", _tileColorTexture);
         _planetMaterial.SetShaderParameter("tile_count",  _tileCount);
         _planetMaterial.SetShaderParameter("tex_width",   _texWidth);
-        _planetMaterial.SetShaderParameter("roughness",   0.6f);
+        _planetMaterial.SetShaderParameter("roughness",   _roughness);
+
         _planetMeshInstance.MaterialOverride = _planetMaterial;
 
         if (_isBorderVisible)
@@ -86,6 +93,12 @@ public partial class HexasphereVisualController : Node
 
         if (_isBorderVisible)
             _borderRenderer.UpdateBorders(Hexasphere, cellDatas, selectedIdx);
+    }
+
+    public void DisposeHexasphere()
+    {
+        Hexasphere?.Dispose();
+        Hexasphere = null;
     }
 
     private void CreateGlobalCollider()

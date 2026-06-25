@@ -1,4 +1,5 @@
 using Godot;
+using System.Collections.Generic;
 
 public class PlanetBorderRenderer
 {
@@ -21,28 +22,36 @@ public class PlanetBorderRenderer
         var positions = (Vector3[])data["positions"];
         var tileLineCounts = (int[])data["tile_line_counts"];
 
-        int totalVerts = positions.Length;
-        var vertPositions = new Vector3[totalVerts];
-        var uv2 = new Vector2[totalVerts];
-
         int tileCount = hexasphere.GetTileCount();
+        var vertPositions = new List<Vector3>();
+        var uv2 = new List<Vector2>();
+        var seenMidpoints = new HashSet<Vector3>();
+
         int idx = 0;
         for (int i = 0; i < tileCount; i++)
         {
             int count = tileLineCounts[i];
             var tileUV = new Vector2(i, 0f);
-            for (int j = 0; j < count; j++)
+            for (int j = 0; j < count; j += 2)
             {
-                vertPositions[idx] = positions[idx] * 1.0001f;
-                uv2[idx] = tileUV;
-                idx++;
+                Vector3 p1 = positions[idx + j];
+                Vector3 p2 = positions[idx + j + 1];
+                Vector3 mid = (p1 + p2) * 0.5f;
+                if (seenMidpoints.Add(mid))
+                {
+                    vertPositions.Add(p1 * 1.0001f);
+                    vertPositions.Add(p2 * 1.0001f);
+                    uv2.Add(tileUV);
+                    uv2.Add(tileUV);
+                }
             }
+            idx += count;
         }
 
         var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = vertPositions;
-        arrays[(int)Mesh.ArrayType.TexUV2] = uv2;
+        arrays[(int)Mesh.ArrayType.Vertex] = vertPositions.ToArray();
+        arrays[(int)Mesh.ArrayType.TexUV2] = uv2.ToArray();
 
         var mesh = new ArrayMesh();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
