@@ -1,17 +1,16 @@
 using Godot;
-using Godot.Hexasphere;
 using System.Diagnostics;
 
 public partial class BenchmarkRunner : Node
 {
-    [Export] public int Iterations = 1;
-    [Export] public int WarmupIterations = 0;
+    [Export] public int Iterations = 5;
+    [Export] public int WarmupIterations = 2;
 
-    private readonly int[] _subDivisions = {  500};
+    private readonly int[] _subDivisions = { 5, 10, 20, 30, 50, 75, 100 };
 
     public override void _Ready()
     {
-        GD.Print("--- Hexasphere Benchmark ---");
+        GD.Print("--- Hexasphere Benchmark (C++ native) ---");
         GD.Print($"Iterations per config: {Iterations} (+ {WarmupIterations} warmup)\n");
 
         foreach (int div in _subDivisions)
@@ -28,25 +27,26 @@ public partial class BenchmarkRunner : Node
         double buildTotal = 0;
         int tiles = 0;
 
-        // warmup
         for (int i = 0; i < WarmupIterations; i++)
         {
-            var h = new Hexasphere(10f, divisions, 1f);
+            var h = new NativeHexasphere();
+            h.Generate(10f, divisions, 1f);
             var b = new HexasphereMeshBuilder();
-            b.Build(h);
+            b.BuildNative(h);
         }
 
         for (int i = 0; i < Iterations; i++)
         {
             var sw = Stopwatch.StartNew();
-            var hexasphere = new Hexasphere(10f, divisions, 1f);
+            var hexasphere = new NativeHexasphere();
+            hexasphere.Generate(10f, divisions, 1f);
             sw.Stop();
             genTotal += sw.Elapsed.TotalMilliseconds;
-            tiles = hexasphere.Tiles.Count;
+            tiles = hexasphere.GetTileCount();
 
             sw.Restart();
             var builder = new HexasphereMeshBuilder();
-            var (_, _) = builder.Build(hexasphere);
+            builder.BuildNative(hexasphere);
             sw.Stop();
             buildTotal += sw.Elapsed.TotalMilliseconds;
         }

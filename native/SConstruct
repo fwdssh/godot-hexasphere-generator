@@ -1,0 +1,13 @@
+#!/usr/bin/env python
+import os
+
+env = SConscript("godot-cpp/SConstruct")
+
+sources = Glob("src/*.cpp")
+
+library = env.SharedLibrary(
+    target="../addons/hexasphere_generator/bin/hexasphere",
+    source=sources,
+)
+
+Default(library)

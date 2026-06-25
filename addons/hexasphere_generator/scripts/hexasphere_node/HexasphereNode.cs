@@ -30,7 +30,7 @@ public partial class HexasphereNode : Node3D
       // Временное хранилище результатов фонового потока.
     // Поля пишутся из Task.Run, читаются в FinalizePlanet() (главный поток).
     // Запись происходит до CallDeferred, чтение — после: гонки нет.
-    public Hexasphere       _pendingHexasphere;
+    private NativeHexasphere _pendingHexasphere;
     private ArrayMesh        _pendingMesh;
     private List<int[]>      _pendingIndices;
     private HexCellData[]       _pendingCellDatas;
@@ -51,22 +51,24 @@ public partial class HexasphereNode : Node3D
 
     private void GeneratePlanetAsync()
 {
-
-    var hexasphere = new Hexasphere(PlanetRadius, SubDivision, HexSize);
+    var hexasphere = new NativeHexasphere();
+    hexasphere.Generate(PlanetRadius, SubDivision, HexSize);
 
     var builder = new HexasphereMeshBuilder();
-    var (mesh, indices) = builder.Build(hexasphere);
-var rng = new RandomNumberGenerator();
-rng.Randomize();
+    var (mesh, indices) = builder.BuildNative(hexasphere);
 
-var cellDatas = new HexCellData[hexasphere.Tiles.Count];
-for (int i = 0; i < cellDatas.Length; i++)
-{
-    cellDatas[i] = new HexCellData
+    var rng = new RandomNumberGenerator();
+    rng.Randomize();
+
+    int tileCount = hexasphere.GetTileCount();
+    var cellDatas = new HexCellData[tileCount];
+    for (int i = 0; i < cellDatas.Length; i++)
     {
-        color = Color.FromHsv(rng.Randf(), 0.6f, 0.85f)
-    };
-}
+        cellDatas[i] = new HexCellData
+        {
+            color = Color.FromHsv(rng.Randf(), 0.6f, 0.85f)
+        };
+    }
 
     _pendingHexasphere = hexasphere;
     _pendingMesh       = mesh;
@@ -81,7 +83,7 @@ private void FinalizePlanet()
 {
 
     _cellDatas = _pendingCellDatas;
-    VisualController.ApplyGenerated(_pendingHexasphere, _pendingMesh, _pendingIndices, IsBordering);
+    VisualController.ApplyGenerated(_pendingMesh, _pendingIndices, IsBordering);
     VisualController.SetBorderColor(BorderColor);
     BuildSpatialIndex(_pendingHexasphere);
 
@@ -104,10 +106,9 @@ private void OnShaderReady()
     // Пространственный индекс: разбиваем тайлы по 8 октантам.
     // При поиске перебираем только 1/8 от общего числа тайлов.
     // ---------------------------------------------------------------
-    private void BuildSpatialIndex(Hexasphere hexasphere)
+    private void BuildSpatialIndex(NativeHexasphere hexasphere)
     {
-        var tiles = hexasphere.Tiles;
-        int count = tiles.Count;
+        int count = hexasphere.GetTileCount();
 
         _octants  = new List<int>[8];
         _tileDirs = new Vector3[count];
@@ -117,8 +118,8 @@ private void OnShaderReady()
 
         for (int i = 0; i < count; i++)
         {
-            var cp = tiles[i].Center.Position;
-            var dir = new Vector3((float)cp.X, (float)cp.Y, (float)cp.Z).Normalized();
+            var cp = hexasphere.GetTileCenter(i);
+            var dir = cp.Normalized();
             _tileDirs[i] = dir;
             _octants[GetOctant(dir)].Add(i);
         }

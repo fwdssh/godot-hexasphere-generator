@@ -2,5 +2,12 @@
 /android/
 .mono/
 *.sln
-*.csproj
 *.import
+
+# Build artifacts
+*.obj
+*.exp
+*.lib
+native/godot-cpp/bin/
+addons/hexasphere_generator/bin/*.exp
+addons/hexasphere_generator/bin/*.lib

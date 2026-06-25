@@ -1,5 +1,4 @@
 using Godot;
-using Godot.Hexasphere;
 using System.Collections.Generic;
 
 public class PlanetBorderRenderer
@@ -7,6 +6,7 @@ public class PlanetBorderRenderer
     private MeshInstance3D _bordersMeshInstance;
     private ShaderMaterial _borderMaterial;
     private Color _borderColor;
+
     public PlanetBorderRenderer(Node parent)
     {
         _bordersMeshInstance      = new MeshInstance3D();
@@ -16,30 +16,31 @@ public class PlanetBorderRenderer
 
     public void SetVisible(bool visible) => _bordersMeshInstance.Visible = visible;
 
-    // Вызывается один раз. Принимает те же параметры шейдера что и планета.
-    public void BuildStaticBorders(List<Tile> tiles, ShaderMaterial planetMaterial)
+    public void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial)
     {
+        int tileCount = hexasphere.GetTileCount();
+
         int totalVerts = 0;
-        for (int i = 0; i < tiles.Count; i++)
-            totalVerts += tiles[i].Points.Count * 2;
+        for (int i = 0; i < tileCount; i++)
+            totalVerts += hexasphere.GetTilePoints(i).Length * 2;
 
         var positions = new Vector3[totalVerts];
         var uv2       = new Vector2[totalVerts];
 
         int vertIdx = 0;
-        for (int i = 0; i < tiles.Count; i++)
+        for (int i = 0; i < tileCount; i++)
         {
-            var pts      = tiles[i].Points;
-            int ptsCount = pts.Count;
+            var pts = hexasphere.GetTilePoints(i);
+            int ptsCount = pts.Length;
             var tileUV   = new Vector2(i, 0f);
 
             for (int p = 0; p < ptsCount; p++)
             {
-                var p1 = pts[p].Position;
-                var p2 = pts[(p + 1) % ptsCount].Position;
+                var p1 = pts[p];
+                var p2 = pts[(p + 1) % ptsCount];
 
-                positions[vertIdx]   = new Vector3((float)p1.X, (float)p1.Y, (float)p1.Z) * 1.0001f;
-                positions[vertIdx+1] = new Vector3((float)p2.X, (float)p2.Y, (float)p2.Z) * 1.0001f;
+                positions[vertIdx]   = p1 * 1.0001f;
+                positions[vertIdx+1] = p2 * 1.0001f;
                 uv2[vertIdx]         = tileUV;
                 uv2[vertIdx+1]       = tileUV;
                 vertIdx += 2;
@@ -54,12 +55,10 @@ public class PlanetBorderRenderer
         var mesh = new ArrayMesh();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
 
-        // Шейдер границ читает ту же текстуру цветов что и планета
         var shader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_borders.gdshader");
         _borderMaterial = new ShaderMaterial();
         _borderMaterial.Shader = shader;
 
-        // Копируем параметры из материала планеты — одна текстура на обоих
         _borderMaterial.SetShaderParameter("tile_colors",
             planetMaterial.GetShaderParameter("tile_colors"));
         _borderMaterial.SetShaderParameter("tile_count",
@@ -67,22 +66,20 @@ public class PlanetBorderRenderer
         _borderMaterial.SetShaderParameter("tex_width",
             planetMaterial.GetShaderParameter("tex_width"));
         _borderMaterial.SetShaderParameter("selected_idx", -1);
+        _borderMaterial.SetShaderParameter("border_color", _borderColor);
 
-
-_borderMaterial.SetShaderParameter("border_color", _borderColor);
         _bordersMeshInstance.Mesh             = mesh;
         _bordersMeshInstance.MaterialOverride = _borderMaterial;
     }
 
-    // Теперь UpdateBorders только меняет один uniform — мгновенно
-    public void UpdateBorders(List<Tile> tiles, HexCellData[] cellDatas, int selectedIdx = -1)
+    public void UpdateBorders(NativeHexasphere hexasphere, HexCellData[] cellDatas, int selectedIdx = -1)
     {
         _borderMaterial?.SetShaderParameter("selected_idx", selectedIdx);
     }
 
     public void SetBorderColor(Color color)
-{
-    _borderColor = color;
-    _borderMaterial?.SetShaderParameter("border_color", color);
-}
+    {
+        _borderColor = color;
+        _borderMaterial?.SetShaderParameter("border_color", color);
+    }
 }
