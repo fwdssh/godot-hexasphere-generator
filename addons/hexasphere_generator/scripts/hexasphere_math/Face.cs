@@ -44,7 +44,6 @@ namespace Godot.Hexasphere
 
         public Point[] Points => _points;
 
-        // возвращаем Vector3 а не Point — не нужен new Point + счётчик ID
         public Vector3 GetCenterPosition()
         {
             return new Vector3(
@@ -65,7 +64,6 @@ namespace Godot.Hexasphere
 
         public bool IsAdjacentToFace(Face face)
         {
-            // Прямое сравнение int ID: 9 операций максимум
             int a0 = _points[0].ID, a1 = _points[1].ID, a2 = _points[2].ID;
             int b0 = face._points[0].ID, b1 = face._points[1].ID, b2 = face._points[2].ID;
             int shared = 0;

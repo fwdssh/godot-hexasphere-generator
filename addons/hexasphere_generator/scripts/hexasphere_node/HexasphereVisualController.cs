@@ -1,5 +1,4 @@
 using Godot;
-using System.Collections.Generic;
 
 public partial class HexasphereVisualController : Node
 {
@@ -7,7 +6,6 @@ public partial class HexasphereVisualController : Node
 
     public NativeHexasphere Hexasphere { get; private set; }
 
-    private List<int[]>    _tileVertexIndices = new List<int[]>();
     private MeshInstance3D _planetMeshInstance;
     private ArrayMesh      _planetArrayMesh;
     private PlanetBorderRenderer _borderRenderer;
@@ -26,10 +24,9 @@ public partial class HexasphereVisualController : Node
 
     public void SetBorderColor(Color color) => _borderRenderer?.SetBorderColor(color);
 
-    public void ApplyGenerated(ArrayMesh mesh, List<int[]> indices, bool isBorderVisible)
+    public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible)
     {
         _planetArrayMesh   = mesh;
-        _tileVertexIndices = indices;
         _tileCount         = Hexasphere.GetTileCount();
         _isBorderVisible   = isBorderVisible;
 

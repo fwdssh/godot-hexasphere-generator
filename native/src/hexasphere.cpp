@@ -88,7 +88,6 @@ Point *Hexasphere::cache_point(const Vector3 &position)
 
 void Hexasphere::subdivide_icosahedron(const std::vector<Face *> &ico_faces)
 {
-    // Estimate total subdivided faces: 20 * divisions^2
     int estimatedFaces = 20 * _divisions * _divisions;
     _faces.reserve(_faces.size() + estimatedFaces);
 
@@ -101,7 +100,6 @@ void Hexasphere::subdivide_icosahedron(const std::vector<Face *> &ico_faces)
     {
         Point *fp[3] = { icoFace->get_points()[0], icoFace->get_points()[1], icoFace->get_points()[2] };
 
-        // bottomRow starts with fp[0]
         std::vector<Point *> bottomRow = { fp[0] };
 
         std::function<Point *(const Vector3 &)> cache_fn = [this](const Vector3 &pos) {

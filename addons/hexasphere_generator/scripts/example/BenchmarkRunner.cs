@@ -31,8 +31,7 @@ public partial class BenchmarkRunner : Node
         {
             var h = new NativeHexasphere();
             h.Generate(10f, divisions, 1f);
-            var b = new HexasphereMeshBuilder();
-            b.BuildNative(h);
+            h.BuildMesh();
         }
 
         for (int i = 0; i < Iterations; i++)
@@ -45,8 +44,7 @@ public partial class BenchmarkRunner : Node
             tiles = hexasphere.GetTileCount();
 
             sw.Restart();
-            var builder = new HexasphereMeshBuilder();
-            builder.BuildNative(hexasphere);
+            hexasphere.BuildMesh();
             sw.Stop();
             buildTotal += sw.Elapsed.TotalMilliseconds;
         }

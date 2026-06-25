@@ -34,4 +34,14 @@ public class NativeHexasphere
     {
         return (Dictionary)_native.Call("get_build_data");
     }
+
+    public Dictionary GetBorderData()
+    {
+        return (Dictionary)_native.Call("get_border_data");
+    }
+
+    public Dictionary BuildMesh()
+    {
+        return (Dictionary)_native.Call("build_mesh");
+    }
 }

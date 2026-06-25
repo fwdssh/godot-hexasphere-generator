@@ -11,37 +11,22 @@ public partial class HexasphereNode : Node3D
     [ExportGroup("Visual")]
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
 
-    //USE WITH HexSize = 1f;
     [ExportGroup("use it if HexSize =1f and u need borders")]
     [Export] public bool IsBordering = true;
     [Export] public Color BorderColor = Colors.White;
 
-
-
     private HexasphereVisualController VisualController;
-
 
     private HexCellData[] _cellDatas;
     private int _selectedTileIndex = -1;
     private bool _planetReady = false;
 
-
-
-      // Временное хранилище результатов фонового потока.
-    // Поля пишутся из Task.Run, читаются в FinalizePlanet() (главный поток).
-    // Запись происходит до CallDeferred, чтение — после: гонки нет.
     private NativeHexasphere _pendingHexasphere;
     private ArrayMesh        _pendingMesh;
-    private List<int[]>      _pendingIndices;
     private HexCellData[]       _pendingCellDatas;
 
-    // ---------------------------------------------------------------
-    // Октанты для быстрого поиска тайла (O(N/8) вместо O(N))
-    // ---------------------------------------------------------------
     private List<int>[] _octants;
-    private Vector3[]   _tileDirs; // кешированные нормализованные направления
-
-
+    private Vector3[]   _tileDirs;
 
     public override void _Ready()
     {
@@ -54,8 +39,8 @@ public partial class HexasphereNode : Node3D
     var hexasphere = new NativeHexasphere();
     hexasphere.Generate(PlanetRadius, SubDivision, HexSize);
 
-    var builder = new HexasphereMeshBuilder();
-    var (mesh, indices) = builder.BuildNative(hexasphere);
+    var result = hexasphere.BuildMesh();
+    var mesh = (ArrayMesh)result["mesh"];
 
     var rng = new RandomNumberGenerator();
     rng.Randomize();
@@ -72,25 +57,23 @@ public partial class HexasphereNode : Node3D
 
     _pendingHexasphere = hexasphere;
     _pendingMesh       = mesh;
-    _pendingIndices    = indices;
     _pendingCellDatas  = cellDatas;
 
     CallDeferred(MethodName.FinalizePlanet);
 }
 
-
 private void FinalizePlanet()
 {
 
     _cellDatas = _pendingCellDatas;
-    VisualController.ApplyGenerated(_pendingMesh, _pendingIndices, IsBordering);
+    VisualController.SetNativeHexasphere(_pendingHexasphere);
+    VisualController.ApplyGenerated(_pendingMesh, IsBordering);
     VisualController.SetBorderColor(BorderColor);
     BuildSpatialIndex(_pendingHexasphere);
 
 
     _pendingHexasphere = null;
     _pendingMesh       = null;
-    _pendingIndices    = null;
     _pendingCellDatas  = null;
 
     VisualController.ShaderReady += OnShaderReady;
@@ -102,11 +85,8 @@ private void OnShaderReady()
     _planetReady = true;
 }
 
-    // ---------------------------------------------------------------
-    // Пространственный индекс: разбиваем тайлы по 8 октантам.
-    // При поиске перебираем только 1/8 от общего числа тайлов.
-    // ---------------------------------------------------------------
     private void BuildSpatialIndex(NativeHexasphere hexasphere)
+    {
     {
         int count = hexasphere.GetTileCount();
 
@@ -123,15 +103,12 @@ private void OnShaderReady()
             _tileDirs[i] = dir;
             _octants[GetOctant(dir)].Add(i);
         }
-    }
+    }}
+    
 
-    // Кодируем октант тремя битами по знаку X, Y, Z
     private static int GetOctant(Vector3 v) =>
         (v.X >= 0 ? 4 : 0) | (v.Y >= 0 ? 2 : 0) | (v.Z >= 0 ? 1 : 0);
 
-    // ---------------------------------------------------------------
-    // Быстрый поиск тайла: ищем только в нужном октанте
-    // ---------------------------------------------------------------
     private int FindTileIndexByDirection(Vector3 direction)
     {
         if (_tileDirs == null || _octants == null) return -1;

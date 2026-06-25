@@ -1,5 +1,4 @@
 using Godot;
-using System.Collections.Generic;
 
 public class PlanetBorderRenderer
 {
@@ -18,38 +17,31 @@ public class PlanetBorderRenderer
 
     public void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial)
     {
+        var data = hexasphere.GetBorderData();
+        var positions = (Vector3[])data["positions"];
+        var tileLineCounts = (int[])data["tile_line_counts"];
+
+        int totalVerts = positions.Length;
+        var vertPositions = new Vector3[totalVerts];
+        var uv2 = new Vector2[totalVerts];
+
         int tileCount = hexasphere.GetTileCount();
-
-        int totalVerts = 0;
-        for (int i = 0; i < tileCount; i++)
-            totalVerts += hexasphere.GetTilePoints(i).Length * 2;
-
-        var positions = new Vector3[totalVerts];
-        var uv2       = new Vector2[totalVerts];
-
-        int vertIdx = 0;
+        int idx = 0;
         for (int i = 0; i < tileCount; i++)
         {
-            var pts = hexasphere.GetTilePoints(i);
-            int ptsCount = pts.Length;
-            var tileUV   = new Vector2(i, 0f);
-
-            for (int p = 0; p < ptsCount; p++)
+            int count = tileLineCounts[i];
+            var tileUV = new Vector2(i, 0f);
+            for (int j = 0; j < count; j++)
             {
-                var p1 = pts[p];
-                var p2 = pts[(p + 1) % ptsCount];
-
-                positions[vertIdx]   = p1 * 1.0001f;
-                positions[vertIdx+1] = p2 * 1.0001f;
-                uv2[vertIdx]         = tileUV;
-                uv2[vertIdx+1]       = tileUV;
-                vertIdx += 2;
+                vertPositions[idx] = positions[idx] * 1.0001f;
+                uv2[idx] = tileUV;
+                idx++;
             }
         }
 
         var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = positions;
+        arrays[(int)Mesh.ArrayType.Vertex] = vertPositions;
         arrays[(int)Mesh.ArrayType.TexUV2] = uv2;
 
         var mesh = new ArrayMesh();

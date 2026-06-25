@@ -32,6 +32,8 @@ public:
     PackedVector3Array get_tile_points(int tile_idx) const;
     PackedInt32Array get_tile_faces(int tile_idx) const;
     Dictionary get_build_data() const;
+    Dictionary get_border_data() const;
+    Dictionary build_mesh() const;
 };
 
 #endif // HEXASPHERE_NATIVE_HEXASPHERE_H

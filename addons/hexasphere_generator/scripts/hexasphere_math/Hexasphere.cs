@@ -137,7 +137,6 @@ namespace Godot.Hexasphere
             foreach (var point in _points)
                 _tiles.Add(new Tile(point, _radius, _hexSize));
 
-            // int-ключ — быстрее строкового словаря
             var tileMap = new Dictionary<int, Tile>(_tiles.Count);
             foreach (var tile in _tiles)
                 tileMap[tile.Center.ID] = tile;

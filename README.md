@@ -1,58 +1,130 @@
-# Hexasphere Generator for Godot 4 (C#)
+# Hexasphere Generator for Godot 4
 
-A procedural hexagonal sphere generator for Godot 4, written in C#. It generates a spherical grid composed of hexagons and exactly 12 pentagons. 
-This project is an optimized port of the [Unity implementation by Em3rgencyLT](https://github.com/Em3rgencyLT/Hexasphere), tailored specifically for Godot.
+A procedural hexagonal sphere generator for Godot 4. Generates a spherical grid of hexagons with exactly 12 pentagons (fullerene topology).
+
+The math core is written in **C++ (GDExtension)** for maximum performance, with a thin C# wrapper for seamless integration.
+
+Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexasphere).
 
 ![Preview](preview.png)
 ![Preview2](preview2.png)
 
-## How to Use
+## Requirements
 
-### 1. Via the Godot Inspector
-1. Add the `HexasphereDemo` node to your 3D scene.
-2. In the Inspector, configure the three main parameters:
-   * **Radius:** Controls the overall size of the generated sphere in 3D space.
-   * **Divisions:** Controls the density of the hex grid (higher values mean more hexagons).
-   * **Hex Size:** A clamped value between `0.01` and `1.0`. Setting it to `1.0` makes tiles perfectly touch each other. Lowering it (e.g., `0.95`) creates clean, visible gaps between individual tiles.
+- Godot 4.7+
+- .NET 9 SDK
+- A C++ compiler (only if rebuilding the native DLL)
 
-### 2. Via C# Scripting 
-*(You can also find a better implementation in the `HexasphereExample.cs` script)*
+## Installation
+
+1. Copy `addons/hexasphere_generator/` into your project's `addons/` folder.
+2. Enable the plugin in **Project → Project Settings → Plugins**.
+3. Pre-built `hexasphere.dll` for Windows is included in `addons/hexasphere_generator/bin/`.
+
+For other platforms you need to [build from source](#building-the-c-dll-from-source).
+
+## Quick Start
+
+### Via the Scene
+
+1. Instance `hexasphere.tscn` (or `addons/hexasphere_generator/example.tscn`) into your scene.
+2. Select the `Hexasphere` node and tweak parameters in the Inspector.
+3. Run — the sphere generates on a background thread.
+
+### Via Script
 
 ```csharp
 using Godot;
-using Godot.Hexasphere;
 
 public partial class MyPlanet : Node3D
 {
-    private Hexasphere _hexasphere;
-
     public override void _Ready()
     {
-        // Initialize a sphere: radius = 10.0, divisions = 4, tile size = 0.95
-        _hexasphere = new Hexasphere(10f, 4, 0.95f);
+        var hex = new NativeHexasphere();
+        hex.Generate(10f, 20, 1f);
 
-        GD.Print($"Planet generated with {_hexasphere.Tiles.Count} tiles!");
+        var result = hex.BuildMesh();
+        var mesh = (ArrayMesh)result["mesh"];
 
-        // Access a specific tile (e.g., the first one)
-        Tile randomTile = _hexasphere.Tiles[0];
-        
-        // Get its exact 3D position to spawn a building or unit
-        Vector3 spawnPosition = randomTile.Center.Position; 
-
-        // Iterate through neighbors for pathfinding, AI, or cellular automata
-        foreach (Tile neighbor in randomTile.Neighbours)
-        {
-            // Handle neighbor logic here
-        }
+        var mi = new MeshInstance3D();
+        mi.Mesh = mesh;
+        AddChild(mi);
     }
 }
 ```
-## Core Architecture
 
-The plugin completely separates pure mathematical data from Godot's rendering engine:
+## Parameters
 
-* **`Hexasphere.cs`** — The main grid manager. It handles the initial icosahedron creation, manages subdivision logic, caches unique vertices using a spatial hash grid, and exposes the final `Tiles` list and raw `MeshDetails`.
-* **`Tile.cs`** — Represents an individual cell on the sphere (either a hexagon or one of the 12 pentagons). It holds references to its boundary points, its center, and a list of its direct `Neighbours`. Includes built-in `ToJson()` serialization.
-* **`Face.cs`** — An internal data structure used to track triangular faces during the icosahedron subdivision phase. It calculates centers and handles fast adjacency checks via unique integer IDs.
-* **`Point.cs`** — Represents a 3D vertex on the sphere. It generates unique incremental integer IDs for $O(1)$ comparison performance and contains logic to sort faces in a clockwise/counterclockwise ring to guarantee correct mesh normals.
-* **`MeshDetails.cs`** — A lightweight data container holding raw vertex and triangle arrays, ready to be fed directly into Godot's `ArrayMesh`.
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `PlanetRadius` | float | 20 | Sphere radius |
+| `SubDivision` | int | 20 | Grid density (tile count ∝ divisions²) |
+| `HexSize` | float (0–1) | 1.0 | 1.0 = gapless, lower = gaps between tiles |
+| `IsBordering` | bool | true | Show tile borders |
+| `BorderColor` | Color | White | Border line color |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  C++ (native/src/)                          │
+│  Point → Face → Tile → Hexasphere          │
+│         ↕                                   │
+│  NativeHexasphere (RefCounted bridge)       │
+│  - generate()                               │
+│  - build_mesh()    → ArrayMesh              │
+│  - get_border_data() → Dictionary           │
+│  - get_build_data()  → Dictionary           │
+└──────────────┬──────────────────────────────┘
+               │ GDExtension
+┌──────────────▼──────────────────────────────┐
+│  C# (addons/scripts/hexasphere_node/)        │
+│  NativeHexasphere.cs  — thin wrapper        │
+│  HexasphereNode.cs    — main node, async     │
+│  HexasphereVisualController.cs              │
+│  PlanetBorderRenderer.cs — border lines      │
+└─────────────────────────────────────────────┘
+```
+
+- **C++ layer** — pure math: icosahedron subdivision, tile boundary computation, mesh array generation. No Godot dependencies in the core classes.
+- **NativeHexasphere** — a `RefCounted` registered with GDExtension. Exposes `generate()`, `build_mesh()`, `get_border_data()`, etc.
+- **C# layer** — orchestration, Godot node management, shader material setup, border rendering.
+
+`build_mesh()` builds the `ArrayMesh` entirely in C++ using direct vertex/normal/UV2 arrays + `add_surface_from_arrays()`, bypassing `SurfaceTool` entirely.
+
+## Building the C++ DLL from Source
+
+```bash
+cd native
+scons target=template_debug
+```
+
+The DLL is output to `addons/hexasphere_generator/bin/hexasphere.dll`.
+
+For other platforms:
+
+| Platform | `platform=` |
+|---|---|
+| Windows | (default) |
+| Linux | `platform=linux` |
+| macOS | `platform=macos` |
+
+Requires a working C++17 compiler and Python 3 + SCons.
+
+## Benchmark
+
+`Divisions=100 → 100,002 tiles` on a 12-core machine:
+
+| Stage | C# (original) | C++ bulk data | C++ direct arrays |
+|---|---|---|---|
+| Generate | 249 ms | 248 ms | 253 ms |
+| BuildMesh | 1197 ms | 472 ms | **142 ms** |
+| **Total** | **1446 ms** | **720 ms** | **395 ms** |
+
+`build_mesh()` on C++ is ~8× faster than the original C# SurfaceTool approach.
+
+## License
+
+MIT — see `LICENSE`.
+
+Copyright (c) 2021 Em3rgencyLT, 2026 fwdssh

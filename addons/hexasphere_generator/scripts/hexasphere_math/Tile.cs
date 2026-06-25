@@ -22,7 +22,7 @@ namespace Godot.Hexasphere
             _size = Mathf.Clamp(size, 0.01f, 1f);
 
             List<Face> icosahedronFaces = center.GetOrderedFaces();
-            int faceCount = icosahedronFaces.Count; // 5 или 6
+            int faceCount = icosahedronFaces.Count;
 
             _neighbourCenters = new List<Point>(faceCount * 2);
             _neighbours       = new List<Tile>(faceCount * 2);
