@@ -66,7 +66,8 @@ public partial class HexasphereVisualController : Node
         _planetMaterial.SetShaderParameter("tile_colors", _tileColorTexture);
         _planetMaterial.SetShaderParameter("tile_count",  _tileCount);
         _planetMaterial.SetShaderParameter("tex_width",   _texWidth);
-        _planetMaterial.SetShaderParameter("roughness",   _roughness);
+        _planetMaterial.SetShaderParameter("roughness",     _roughness);
+        _planetMaterial.SetShaderParameter("selected_idx",  -1);
 
         _planetMeshInstance.MaterialOverride = _planetMaterial;
 
@@ -90,6 +91,8 @@ public partial class HexasphereVisualController : Node
         }
 
         _tileColorTexture.Update(_tileColorImage);
+
+        _planetMaterial?.SetShaderParameter("selected_idx", selectedIdx);
 
         if (_isBorderVisible)
             _borderRenderer.UpdateBorders(Hexasphere, cellDatas, selectedIdx);

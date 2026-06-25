@@ -8,8 +8,7 @@ uniform int selected_idx;
 uniform vec4 border_color = vec4(0.0, 0.0, 0.0, 1.0);
 
 void vertex() {
-    // UV2.x хранит индекс тайла — такой же как в планете
-    int idx = int(UV2.x);
+    int idx = int(round(UV2.x));
 
     float u = (float(idx % tex_width) + 0.5) / float(tex_width);
     float v = (float(idx / tex_width) + 0.5) / float((tile_count + tex_width - 1) / tex_width);
@@ -17,7 +16,7 @@ void vertex() {
     vec4 tileColor = texture(tile_colors, vec2(u, v));
 
     if (idx == selected_idx) {
-        COLOR = vec4(1.0, 1.0, 0.0, 1.0); // жёлтый для выделенного
+        COLOR = vec4(1.0, 1.0, 0.0, 1.0);
     } else {
         COLOR = border_color;
     }

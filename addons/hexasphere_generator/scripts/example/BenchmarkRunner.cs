@@ -1,4 +1,5 @@
 using Godot;
+using Godot.Hexasphere;
 using System.Diagnostics;
 
 public partial class BenchmarkRunner : Node
@@ -10,7 +11,7 @@ public partial class BenchmarkRunner : Node
 
     public override void _Ready()
     {
-        GD.Print("--- Hexasphere Benchmark (C++ native) ---");
+        GD.Print("--- Hexasphere Benchmark ---");
         GD.Print($"Iterations per config: {Iterations} (+ {WarmupIterations} warmup)\n");
 
         foreach (int div in _subDivisions)
@@ -23,8 +24,9 @@ public partial class BenchmarkRunner : Node
 
     private void RunBenchmark(int divisions)
     {
-        double genTotal = 0;
-        double buildTotal = 0;
+        // ---------- C++ ----------
+        double cppGenTotal = 0;
+        double cppMeshTotal = 0;
         int tiles = 0;
 
         for (int i = 0; i < WarmupIterations; i++)
@@ -37,21 +39,50 @@ public partial class BenchmarkRunner : Node
         for (int i = 0; i < Iterations; i++)
         {
             var sw = Stopwatch.StartNew();
-            var hexasphere = new NativeHexasphere();
-            hexasphere.Generate(10f, divisions, 1f);
+            var h = new NativeHexasphere();
+            h.Generate(10f, divisions, 1f);
             sw.Stop();
-            genTotal += sw.Elapsed.TotalMilliseconds;
-            tiles = hexasphere.GetTileCount();
+            cppGenTotal += sw.Elapsed.TotalMilliseconds;
+            tiles = h.GetTileCount();
 
             sw.Restart();
-            hexasphere.BuildMesh();
+            h.BuildMesh();
             sw.Stop();
-            buildTotal += sw.Elapsed.TotalMilliseconds;
+            cppMeshTotal += sw.Elapsed.TotalMilliseconds;
         }
 
-        double genAvg = genTotal / Iterations;
-        double buildAvg = buildTotal / Iterations;
+        double cppGenAvg = cppGenTotal / Iterations;
+        double cppMeshAvg = cppMeshTotal / Iterations;
+        long memCpp = (long)(OS.GetStaticMemoryUsage() / 1048576);
 
-        GD.Print($"Divisions={divisions,3} | Tiles={tiles,6} | Generate={genAvg,6:F1}ms | BuildMesh={buildAvg,6:F1}ms");
+        // ---------- C# ----------
+        double csGenTotal = 0;
+        double csMeshTotal = 0;
+
+        for (int i = 0; i < WarmupIterations; i++)
+        {
+            var cs = new Hexasphere(10f, divisions, 1f);
+            new HexasphereMeshBuilder().Build(cs);
+        }
+
+        for (int i = 0; i < Iterations; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            var cs = new Hexasphere(10f, divisions, 1f);
+            sw.Stop();
+            csGenTotal += sw.Elapsed.TotalMilliseconds;
+
+            sw.Restart();
+            new HexasphereMeshBuilder().Build(cs);
+            sw.Stop();
+            csMeshTotal += sw.Elapsed.TotalMilliseconds;
+        }
+
+        double csGenAvg = csGenTotal / Iterations;
+        double csMeshAvg = csMeshTotal / Iterations;
+
+        long memAll = (long)(OS.GetStaticMemoryUsage() / 1048576);
+
+        GD.Print($"Div={divisions,3} | Tiles={tiles,6} | C++ Gen={cppGenAvg,6:F1}ms C# Gen={csGenAvg,7:F1}ms | C++ Mesh={cppMeshAvg,8:F1}ms C# Mesh={csMeshAvg,8:F1}ms | C++ All={cppGenAvg+cppMeshAvg,7:F1}ms C# All={csGenAvg+csMeshAvg,7:F1}ms | Mem C++={memCpp,4}MB Mem All={memAll,4}MB");
     }
 }

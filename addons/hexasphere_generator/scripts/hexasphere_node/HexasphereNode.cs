@@ -1,5 +1,4 @@
 using Godot;
-using System.Collections.Generic;
 using Godot.Hexasphere;
 using System.Threading.Tasks;
 public partial class HexasphereNode : Node3D
@@ -26,8 +25,7 @@ public partial class HexasphereNode : Node3D
     private ArrayMesh        _pendingMesh;
     private HexCellData[]       _pendingCellDatas;
 
-    private List<int>[] _octants;
-    private Vector3[]   _tileDirs;
+    private Vector3[] _tileDirs;
 
     public override void _Ready()
     {
@@ -115,43 +113,29 @@ private void OnShaderReady()
     private void BuildSpatialIndex(NativeHexasphere hexasphere)
     {
         int count = hexasphere.GetTileCount();
-
-        _octants  = new List<int>[8];
         _tileDirs = new Vector3[count];
-
-        for (int i = 0; i < 8; i++)
-            _octants[i] = new List<int>(count / 6);
 
         for (int i = 0; i < count; i++)
         {
             var cp = hexasphere.GetTileCenter(i);
-            var dir = cp.Normalized();
-            _tileDirs[i] = dir;
-            _octants[GetOctant(dir)].Add(i);
+            _tileDirs[i] = cp.Normalized();
         }
     }
-    
-
-    private static int GetOctant(Vector3 v) =>
-        (v.X >= 0 ? 4 : 0) | (v.Y >= 0 ? 2 : 0) | (v.Z >= 0 ? 1 : 0);
 
     private int FindTileIndexByDirection(Vector3 direction)
     {
-        if (_tileDirs == null || _octants == null) return -1;
+        if (_tileDirs == null) return -1;
 
         Vector3 normDir = direction.Normalized();
-        var candidates  = _octants[GetOctant(normDir)];
+        int bestIndex = -1;
+        float maxDot = -2f;
 
-        int   bestIndex = -1;
-        float maxDot    = -2f;
-
-        for (int k = 0; k < candidates.Count; k++)
+        for (int i = 0; i < _tileDirs.Length; i++)
         {
-            int i   = candidates[k];
             float d = normDir.Dot(_tileDirs[i]);
             if (d > maxDot)
             {
-                maxDot    = d;
+                maxDot = d;
                 bestIndex = i;
             }
         }
