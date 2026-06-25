@@ -88,8 +88,31 @@ private void OnShaderReady()
     _planetReady = true;
 }
 
-    private void BuildSpatialIndex(NativeHexasphere hexasphere)
+    public override void _UnhandledInput(InputEvent @event)
     {
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
+        {
+            var camera = GetViewport().GetCamera3D();
+            var space = GetWorld3D().DirectSpaceState;
+            var mousePos = GetViewport().GetMousePosition();
+            var origin = camera.ProjectRayOrigin(mousePos);
+            var end = origin + camera.ProjectRayNormal(mousePos) * 10000f;
+            var query = PhysicsRayQueryParameters3D.Create(origin, end);
+            var result = space.IntersectRay(query);
+            if (result.Count > 0)
+            {
+                var dir = ((Vector3)result["position"]).Normalized();
+                int idx = FindTileIndexByDirection(dir);
+                if (idx >= 0)
+                {
+                    _selectedTileIndex = idx;
+                    VisualController.Draw(_cellDatas, _selectedTileIndex);
+                }
+            }
+        }
+    }
+
+    private void BuildSpatialIndex(NativeHexasphere hexasphere)
     {
         int count = hexasphere.GetTileCount();
 
@@ -106,7 +129,7 @@ private void OnShaderReady()
             _tileDirs[i] = dir;
             _octants[GetOctant(dir)].Add(i);
         }
-    }}
+    }
     
 
     private static int GetOctant(Vector3 v) =>
