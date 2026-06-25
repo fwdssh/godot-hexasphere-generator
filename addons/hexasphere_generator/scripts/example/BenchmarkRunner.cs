@@ -7,7 +7,7 @@ public partial class BenchmarkRunner : Node
     [Export] public int Iterations = 5;
     [Export] public int WarmupIterations = 2;
 
-    private readonly int[] _subDivisions = { 5, 10, 20, 30, 50, 75, 100 };
+    private readonly int[] _subDivisions = { 200 };
 
     public override void _Ready()
     {

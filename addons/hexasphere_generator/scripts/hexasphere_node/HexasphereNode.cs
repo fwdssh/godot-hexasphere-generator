@@ -1,5 +1,4 @@
 using Godot;
-using Godot.Hexasphere;
 using System.Threading.Tasks;
 public partial class HexasphereNode : Node3D
 {
@@ -27,9 +26,20 @@ public partial class HexasphereNode : Node3D
 
     private Vector3[] _tileDirs;
 
+    public bool IsReady => _planetReady;
+    public int TileCount => _cellDatas?.Length ?? 0;
+
+
+
     public override void _Ready()
     {
-        VisualController = GetNode<HexasphereVisualController>("HexasphereVisual");
+        VisualController = GetNodeOrNull<HexasphereVisualController>("HexasphereVisual");
+        if (VisualController == null)
+        {
+            VisualController = new HexasphereVisualController();
+            VisualController.Name = "HexasphereVisual";
+            AddChild(VisualController);
+        }
         Task.Run(GeneratePlanetAsync);
     }
 

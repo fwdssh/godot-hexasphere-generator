@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://bsrtm34wwfaws"]
 
-[ext_resource type="PackedScene" uid="uid://bbi4qax8qbs1s" path="res://hexasphere.tscn" id="1_76mee"]
 [ext_resource type="Script" uid="uid://chj4a2dkg6sph" path="res://addons/hexasphere_generator/scripts/example/Camera3d.cs" id="2_76mee"]
+[ext_resource type="Script" uid="uid://b426dtntimedh" path="res://addons/hexasphere_generator/scripts/hexasphere_node/HexasphereNode.cs" id="2_imyun"]
 
 [node name="example" type="Node" unique_id=164599645]
 
@@ -12,5 +12,6 @@ ZoomSpeed = 0.1
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
 
-[node name="Hexasphere" parent="." unique_id=8295240 instance=ExtResource("1_76mee")]
-SubDivision = 50
+[node name="Hexasphere" type="Node3D" parent="." unique_id=1362937076]
+script = ExtResource("2_imyun")
+metadata/_custom_type_script = "uid://b426dtntimedh"

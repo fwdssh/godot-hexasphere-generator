@@ -1,0 +1,41 @@
+name: Build Linux GDExtension
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Switch godot-cpp to master
+        run: |
+          cd native/godot-cpp
+          git fetch origin master
+          git checkout master
+          git submodule update --init --recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y scons pkg-config \
+            libx11-dev libxcursor-dev libxinerama-dev \
+            libgl1-mesa-dev libfontconfig-dev
+
+      - name: Build debug
+        working-directory: native
+        run: scons platform=linux target=template_debug
+
+      - name: Build release
+        working-directory: native
+        run: scons platform=linux target=template_release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: addons/hexasphere_generator/bin/
