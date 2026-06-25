@@ -9,8 +9,6 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 ![Preview](preview.png)
 ![Preview2](preview2.png)
 
-
-
 ## Installation
 
 1. Copy `addons/hexasphere_generator/` into your project's `addons/` folder.
@@ -40,36 +38,6 @@ Alternatively, [build from source](#building-the-native-library).
 
 ### Via Script
 
-The main node script lives at `addons/hexasphere_generator/scripts/hexasphere_node/HexasphereNode.cs`.
-Use `SetCellColor(index, color)` to modify any tile after generation:
-
-```csharp
-using Godot;
-
-public partial class MyController : Node
-{
-    public override void _Ready()
-    {
-        var planet = GetNode<HexasphereNode>("Hexasphere");
-    }
-
-    public override void _Process(double delta)
-    {
-        // Wait for planet to finish generating
-        if (planet.IsReady)
-        {
-            // Color first tile red
-            planet.SetCellColor(0, Colors.Red);
-
-            // Get current color
-            Color c = planet.GetCellColor(0);
-        }
-    }
-}
-```
-
-### Low-Level API (NativeHexasphere)
-
 ```csharp
 using Godot;
 
@@ -90,6 +58,50 @@ public partial class MyPlanet : Node3D
 }
 ```
 
+## Custom Cell Data
+
+Implement `ICellData` for custom per-tile data and override `GetColor` in a custom visual controller:
+
+```csharp
+using Godot;
+
+public class MyTileData : ICellData
+{
+    public Color color;
+    public float Height;
+    public int Biome;
+}
+
+public partial class MyVisual : HexasphereVisualController
+{
+    public override Color GetColor(ICellData cellData)
+    {
+        if (cellData is MyTileData tile)
+            return tile.Height > 0.5f ? Colors.Green : Colors.Brown;
+        return base.GetColor(cellData);
+    }
+}
+```
+
+To provide custom data, override `CreateCellData` in a subclass of `HexasphereNode`:
+
+```csharp
+using Godot;
+
+public partial class MyPlanet : HexasphereNode
+{
+    protected override ICellData[] CreateCellData(int count)
+    {
+        var data = new MyTileData[count];
+        for (int i = 0; i < count; i++)
+            data[i] = new MyTileData { color = Colors.Gray, Height = 1f };
+        return data;
+    }
+}
+```
+
+Access data via `CellData` property, redraw with `RefreshVisuals()`.
+
 ## Folder Structure
 
 ```
@@ -103,7 +115,8 @@ addons/hexasphere_generator/
 │   │   ├── HexasphereNode.cs         # Main node (Ctrl+A → Hexasphere)
 │   │   ├── HexasphereVisualController.cs
 │   │   ├── NativeHexasphere.cs       # C# wrapper for C++ GDExtension
-│   │   ├── HexCellData.cs            # Per-cell data (color, etc.)
+│   │   ├── ICellData.cs              # Cell data interface
+│   │   ├── HexCellData.cs            # Default cell data implementation
 │   │   ├── PlanetBorderRenderer.cs
 │   │   └── shaders/
 │   │       ├── hexasphere_colors.gdshader
@@ -184,14 +197,14 @@ Download the artifact from the Actions page and extract into `addons/hexasphere_
 
 ## Benchmark
 
-| SubDivision | Tiles | C++ Gen | C# Gen | C++ Mesh | C# Mesh | C++ All | C# All |
-|-----|------:|--------:|-------:|---------:|--------:|--------:|-------:|
-|   5 |   252 |   0,6ms |  2,1ms |    0,4ms |   0,7ms |   1,1ms |  2,8ms |  
-|  10 |  1002 |   2,3ms |  7,5ms |    1,0ms |   3,0ms |   3,3ms | 10,5ms |  
-|  20 |  4002 |   8,8ms | 36,5ms |    4,3ms |  17,4ms |  13,1ms | 53,9ms |  
-|  30 |  9002 |  18,7ms | 66,5ms |   10,3ms |  46,1ms |  28,9ms |112,6ms | 
-|  50 | 25002 |  55,4ms |187,1ms |   31,5ms | 122,6ms |  86,9ms |309,7ms | 
-|  75 | 56252 | 128,0ms |447,4ms |   72,8ms | 255,4ms | 200,8ms |702,7ms |  
-| 100 |100002 | 253,0ms |760,7ms |  127,0ms | 490,1ms | 380,1ms |1250,7ms|  
+| Div | Tiles | C++ Gen | C# Gen | C++ Mesh | C# Mesh | C++ All | C# All | Mem C++ | Mem C# |
+|-----|------:|--------:|-------:|---------:|--------:|--------:|-------:|--------:|-------:|
+|   5 |   252 |   0,6ms |  2,1ms |    0,4ms |   0,7ms |   1,1ms |  2,8ms |   96MB |   97MB |
+|  10 |  1002 |   2,3ms |  7,5ms |    1,0ms |   3,0ms |   3,3ms | 10,5ms |   97MB |   98MB |
+|  20 |  4002 |   8,8ms | 36,5ms |    4,3ms |  17,4ms |  13,1ms | 53,9ms |   99MB |  107MB |
+|  30 |  9002 |  18,7ms | 66,5ms |   10,3ms |  46,1ms |  28,9ms |112,6ms |  110MB |  121MB |
+|  50 | 25002 |  55,4ms |187,1ms |   31,5ms | 122,6ms |  86,9ms |309,7ms |  130MB |  153MB |
+|  75 | 56252 | 128,0ms |447,4ms |   72,8ms | 255,4ms | 200,8ms |702,7ms |  172MB |  224MB |
+| 100 |100002 | 253,0ms |760,7ms |  127,0ms | 490,1ms | 380,1ms |1250,7ms|  259MB |  935MB |
 
 

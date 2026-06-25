@@ -16,20 +16,34 @@ public partial class HexasphereNode : Node3D
 
     private HexasphereVisualController VisualController;
 
-    private HexCellData[] _cellDatas;
+    private ICellData[] _cellDatas;
     private int _selectedTileIndex = -1;
     private bool _planetReady = false;
 
     private NativeHexasphere _pendingHexasphere;
     private ArrayMesh        _pendingMesh;
-    private HexCellData[]       _pendingCellDatas;
+    private ICellData[]       _pendingCellDatas;
 
     private Vector3[] _tileDirs;
 
     public bool IsReady => _planetReady;
     public int TileCount => _cellDatas?.Length ?? 0;
 
+    virtual protected ICellData[] CreateCellData(int count)
+    {
+        var rng = new RandomNumberGenerator();
+        rng.Randomize();
+        var data = new HexCellData[count];
+        for (int i = 0; i < data.Length; i++)
+        {
+        data[i] = new HexCellData
+        {
+            color = Color.FromHsv(rng.Randf(), 0.6f, 0.85f)
+        };
+        }
 
+        return data;
+    }
 
     public override void _Ready()
     {
@@ -51,18 +65,11 @@ public partial class HexasphereNode : Node3D
     var result = hexasphere.BuildMesh();
     var mesh = (ArrayMesh)result["mesh"];
 
-    var rng = new RandomNumberGenerator();
-    rng.Randomize();
+
 
     int tileCount = hexasphere.GetTileCount();
-    var cellDatas = new HexCellData[tileCount];
-    for (int i = 0; i < cellDatas.Length; i++)
-    {
-        cellDatas[i] = new HexCellData
-        {
-            color = Color.FromHsv(rng.Randf(), 0.6f, 0.85f)
-        };
-    }
+    var cellDatas = CreateCellData(tileCount);
+
 
     _pendingHexasphere = hexasphere;
     _pendingMesh       = mesh;

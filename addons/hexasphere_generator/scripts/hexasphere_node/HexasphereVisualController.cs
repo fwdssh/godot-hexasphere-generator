@@ -18,6 +18,17 @@ public partial class HexasphereVisualController : Node
     private bool _isBorderVisible = true;
     private float _roughness = 0.6f;
 
+
+    virtual public Color GetColor(ICellData cellData)
+    {
+        if (cellData is HexCellData hexCellData)
+        return  hexCellData.color;
+        else
+        return Colors.Black;
+    }
+
+
+
     public void SetNativeHexasphere(NativeHexasphere hex)
     {
         Hexasphere = hex;
@@ -77,14 +88,14 @@ public partial class HexasphereVisualController : Node
         EmitSignal(SignalName.ShaderReady);
     }
 
-    public void Draw(HexCellData[] cellDatas, int selectedIdx = -1)
+    public void Draw(ICellData[] cellDatas, int selectedIdx = -1)
     {
         if (_tileColorImage == null || cellDatas == null || cellDatas.Length == 0) return;
 
         int safeLength = Mathf.Min(cellDatas.Length, _tileCount);
         for (int i = 0; i < safeLength; i++)
         {
-            Color c = cellDatas[i].color;
+            Color c = GetColor(cellDatas[i]);
             int px = i % _texWidth;
             int py = i / _texWidth;
             _tileColorImage.SetPixel(px, py, c);
@@ -97,6 +108,8 @@ public partial class HexasphereVisualController : Node
         if (_isBorderVisible)
             _borderRenderer.UpdateBorders(Hexasphere, cellDatas, selectedIdx);
     }
+
+
 
     public void DisposeHexasphere()
     {

@@ -2,6 +2,7 @@
 import os
 
 env = SConscript("godot-cpp/SConstruct")
+env.Append(CCFLAGS=['-fexceptions'])
 
 sources = Glob("src/*.cpp")
 

@@ -73,7 +73,7 @@ public class PlanetBorderRenderer
         _bordersMeshInstance.MaterialOverride = _borderMaterial;
     }
 
-    public void UpdateBorders(NativeHexasphere hexasphere, HexCellData[] cellDatas, int selectedIdx = -1)
+    public void UpdateBorders(NativeHexasphere hexasphere, ICellData[] cellDatas, int selectedIdx = -1)
     {
         _borderMaterial?.SetShaderParameter("selected_idx", selectedIdx);
     }
