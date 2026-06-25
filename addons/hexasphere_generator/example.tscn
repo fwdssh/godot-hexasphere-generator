@@ -1,17 +1,16 @@
 [gd_scene format=3 uid="uid://bsrtm34wwfaws"]
 
-[ext_resource type="Script" uid="uid://c6da8x0enjxd1" path="res://addons/hexasphere_generator/scripts/example/HexasphereExample.cs" id="1_imyun"]
 [ext_resource type="Script" uid="uid://chj4a2dkg6sph" path="res://addons/hexasphere_generator/scripts/example/Camera3d.cs" id="2_76mee"]
+[ext_resource type="Script" uid="uid://dsoeqqgx5otj4" path="res://addons/hexasphere_generator/scripts/example/BenchmarkRunner.cs" id="3_76mee"]
 
 [node name="example" type="Node" unique_id=164599645]
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=878881748]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 14.09449)
 script = ExtResource("2_76mee")
 ZoomSpeed = 0.1
 
-[node name="Hexasphere" type="Node3D" parent="." unique_id=1632235356]
-script = ExtResource("1_imyun")
-"_сolor" = Color(0.8255755, 0.69586295, 0.8293986, 1)
-
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
+
+[node name="Node" type="Node" parent="." unique_id=192155000]
+script = ExtResource("3_76mee")

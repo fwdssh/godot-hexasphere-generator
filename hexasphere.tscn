@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://bbi4qax8qbs1s"]
+
+[ext_resource type="Script" uid="uid://b426dtntimedh" path="res://addons/hexasphere_generator/scripts/hexasphere_node/HexasphereNode.cs" id="1_dymy2"]
+[ext_resource type="Script" uid="uid://co3l7eetexict" path="res://addons/hexasphere_generator/scripts/hexasphere_node/HexasphereVisualController.cs" id="2_feqdc"]
+
+[node name="Hexasphere" type="Node3D" unique_id=8295240]
+script = ExtResource("1_dymy2")
+
+[node name="HexasphereVisual" type="Node" parent="." unique_id=2009227898]
+script = ExtResource("2_feqdc")

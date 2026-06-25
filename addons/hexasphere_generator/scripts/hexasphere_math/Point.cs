@@ -22,13 +22,6 @@ namespace Godot.Hexasphere
             _faces = new List<Face>(6); 
         }
 
-        private Point(Vector3 position, int id, List<Face> faces)
-        {
-            _id = id;
-            _position = position;
-            _faces = faces;
-        }
-
          public Vector3 Position => _position;
          public int ID => _id;
         public List<Face> Faces => _faces;
@@ -57,12 +50,6 @@ namespace Godot.Hexasphere
 
             segments.Add(target);
             return segments;
-        }
-
-        public Point ProjectToSphere(float radius, float t)
-        {
-            float scale = radius / _position.Length() * t;
-            return new Point(new Vector3(_position.X * scale, _position.Y * scale, _position.Z * scale), _id, _faces);
         }
 
         /// Упорядочивает фейсы в кольцо. n <= 6, все операции O(1) на практике.
