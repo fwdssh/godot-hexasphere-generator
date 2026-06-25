@@ -30,12 +30,6 @@ Alternatively, [build from source](#building-the-native-library).
 2. Click **Add Node (Ctrl+A)** and search for `Hexasphere`.
 3. Select the node, tweak parameters in the Inspector, and run.
 
-### Via the Scene
-
-1. Instance `hexasphere.tscn` (or `addons/hexasphere_generator/example.tscn`) into your scene.
-2. Select the `Hexasphere` node and tweak parameters in the Inspector.
-3. Run — the sphere generates on a background thread.
-
 ### Via Script
 
 ```csharp
@@ -132,15 +126,6 @@ addons/hexasphere_generator/
 └── example.tscn
 ```
 
-## Parameters
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `PlanetRadius` | float | 20 | Sphere radius |
-| `SubDivision` | int | 20 | Grid density (tile count ∝ divisions²) |
-| `HexSize` | float (0–1) | 1.0 | 1.0 = gapless, lower = gaps between tiles |
-| `IsBordering` | bool | true | Show tile borders |
-| `BorderColor` | Color | White | Border line color |
 
 ## Architecture
 
@@ -197,14 +182,14 @@ Download the artifact from the Actions page and extract into `addons/hexasphere_
 
 ## Benchmark
 
-| Div | Tiles | C++ Gen | C# Gen | C++ Mesh | C# Mesh | C++ All | C# All | Mem C++ | Mem C# |
-|-----|------:|--------:|-------:|---------:|--------:|--------:|-------:|--------:|-------:|
-|   5 |   252 |   0,6ms |  2,1ms |    0,4ms |   0,7ms |   1,1ms |  2,8ms |   96MB |   97MB |
-|  10 |  1002 |   2,3ms |  7,5ms |    1,0ms |   3,0ms |   3,3ms | 10,5ms |   97MB |   98MB |
-|  20 |  4002 |   8,8ms | 36,5ms |    4,3ms |  17,4ms |  13,1ms | 53,9ms |   99MB |  107MB |
-|  30 |  9002 |  18,7ms | 66,5ms |   10,3ms |  46,1ms |  28,9ms |112,6ms |  110MB |  121MB |
-|  50 | 25002 |  55,4ms |187,1ms |   31,5ms | 122,6ms |  86,9ms |309,7ms |  130MB |  153MB |
-|  75 | 56252 | 128,0ms |447,4ms |   72,8ms | 255,4ms | 200,8ms |702,7ms |  172MB |  224MB |
-| 100 |100002 | 253,0ms |760,7ms |  127,0ms | 490,1ms | 380,1ms |1250,7ms|  259MB |  935MB |
+| Div | Tiles | C++ Gen | C# Gen | C++ Mesh | C# Mesh | C++ All | C# All |
+|-----|------:|--------:|-------:|---------:|--------:|--------:|-------:|
+|   5 |   252 |   0,6ms |  2,1ms |    0,4ms |   0,7ms |   1,1ms |  2,8ms | 
+|  10 |  1002 |   2,3ms |  7,5ms |    1,0ms |   3,0ms |   3,3ms | 10,5ms |  
+|  20 |  4002 |   8,8ms | 36,5ms |    4,3ms |  17,4ms |  13,1ms | 53,9ms |  
+|  30 |  9002 |  18,7ms | 66,5ms |   10,3ms |  46,1ms |  28,9ms |112,6ms | 
+|  50 | 25002 |  55,4ms |187,1ms |   31,5ms | 122,6ms |  86,9ms |309,7ms | 
+|  75 | 56252 | 128,0ms |447,4ms |   72,8ms | 255,4ms | 200,8ms |702,7ms |  
+| 100 |100002 | 253,0ms |760,7ms |  127,0ms | 490,1ms | 380,1ms |1250,7ms|  
 
 
