@@ -14,6 +14,10 @@ ZoomSpeed = 0.1
 
 [node name="Hexasphere" type="Node3D" parent="." unique_id=1949153455]
 script = ExtResource("2_imyun")
-SubDivision = 150
+SubDivision = 350
+IsClickEnabled = false
+IsClickVisualEnabled = false
+IsHoverEnabled = false
+IsHoverVisualEnabled = false
 IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"

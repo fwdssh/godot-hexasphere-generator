@@ -18,9 +18,12 @@ public partial class HexasphereNode : Node3D
     [Export(PropertyHint.Range, "0.0, 1.0")] public float Roughness = 0.6f;
 
 
+    [Export] public bool IsClickEnabled = true;
     [Export] public bool IsClickVisualEnabled = true;
     [Export] public Color ClickColor = Colors.Black;
 
+
+    [Export] public bool IsHoverEnabled = true;
     [Export] public bool IsHoverVisualEnabled = true;
     [Export] public Color HoverColor = Colors.Red;
 
@@ -132,7 +135,7 @@ virtual protected void OnShaderReady()
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } && IsClickEnabled)
         {
             var camera = GetViewport().GetCamera3D();
             var space = GetWorld3D().DirectSpaceState;
@@ -176,7 +179,7 @@ virtual protected void OnShaderReady()
 
 
 
-            if (@event is InputEventMouseMotion)
+        if (@event is InputEventMouseMotion && IsHoverEnabled)
     {
         var camera = GetViewport().GetCamera3D();
         var space = GetWorld3D().DirectSpaceState;

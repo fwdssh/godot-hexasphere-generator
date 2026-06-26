@@ -13,4 +13,4 @@ native/.sconsign.dblite
 native/godot-cpp/bin/
 addons/hexasphere_generator/bin/*.exp
 addons/hexasphere_generator/bin/*.lib
- addons/hexasphere_generator/bin/~*.
+addons/hexasphere_generator/bin/~*.

@@ -1,12 +1,12 @@
 # Hexasphere Generator for Godot 4
 
-A procedural hexagonal sphere generator for Godot 4. Generates a spherical grid of **hexagons with exactly 12 pentagons** (fullerene topology — like a soccer ball or Buckminsterfullerene).
+A procedural hexagonal sphere generator for Godot 4. Generates a spherical grid of **hexagons with exactly 12 pentagons**.
 
 The math core is written in **C++ (GDExtension)** for maximum performance, with a thin C# wrapper for seamless integration.
 
 Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexasphere).
 
-![Preview](preview.png)
+![Preview](preview_manytiles.png)
 ![Preview — wireframe](preview2.png)
 
 ## Features
@@ -18,7 +18,7 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 - **Per-tile coloring** — custom colors via shader + `ImageTexture` (no per-tile materials)
 - **Click & hover** — `TileClicked` / `TileHovered` signals with raycast hit detection
 - **Custom tile data** — implement `ICellData` for biomes, heights, colors per tile
-- **Cross-platform** — Windows (pre-built), Linux & macOS (build from source)
+- **Cross-platform** — Windows (pre-built), Linux & macOS [(build from source)](#building-the-native-library)
 
 ## Installation
 
@@ -159,9 +159,6 @@ public partial class MyPlanet : HexasphereNode
     }
 }
 ```
-
-Access data via `CellData` property, redraw with `RefreshVisuals()`.
-
 ### Overridable Methods
 
 Key virtual methods in `HexasphereNode`:
