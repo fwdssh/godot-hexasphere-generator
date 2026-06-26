@@ -4,3 +4,4 @@ compatibility_minimum = "4.6"
 
 [libraries]
 windows = "res://addons/hexasphere_generator/bin/hexasphere.dll"
+linux = "res://addons/hexasphere_generator/bin/libhexasphere.so"

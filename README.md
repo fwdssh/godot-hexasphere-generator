@@ -18,13 +18,13 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 - **Per-tile coloring** — custom colors via shader + `ImageTexture` (no per-tile materials)
 - **Click & hover** — `TileClicked` / `TileHovered` signals with raycast hit detection
 - **Custom tile data** — implement `ICellData` for biomes, heights, colors per tile
-- **Cross-platform** — Windows (pre-built), Linux & macOS [(build from source)](#building-the-native-library)
+- **Cross-platform** — Windows, Linux (pre-built)
 
 ## Installation
 
 1. Copy `addons/hexasphere_generator/` into your project's `addons/` folder.
 2. Enable the plugin in **Project → Project Settings → Plugins**.
-3. Pre-built `hexasphere.dll` for **Windows** is included in `addons/hexasphere_generator/bin/`.
+3. Pre-built `hexasphere.dll` for **Windows**  and `libhexasphere.so` for **Linux** is included in `addons/hexasphere_generator/bin/`.
 
 
 ## Quick Start
