@@ -14,7 +14,7 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 - **Hexagonal sphere** — procedural generation with configurable subdivision
 - **Fullerene topology** — exactly 12 pentagons, rest are hexagons
 - **High performance** — C++ GDExtension core with pure C# fallback 
-- **Editor plugin** — `HexasphereNode` available in **Add Node**
+- **Hexasphere Node** — `HexasphereNode` available in **Add Node**
 - **Per-tile coloring** — custom colors via shader + `ImageTexture` (no per-tile materials)
 - **Click & hover** — `TileClicked` / `TileHovered` signals with raycast hit detection
 - **Custom tile data** — implement `ICellData` for biomes, heights, colors per tile
@@ -37,7 +37,7 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 
 ### Via Script — HexasphereNode
 
-Inherit `Hexasphere Node`, override virtual methods, subscribe to signals:
+Inherit `HexasphereNode`, override virtual methods, subscribe to signals:
 
 ```csharp
 public partial class MyPlanet : HexasphereNode
