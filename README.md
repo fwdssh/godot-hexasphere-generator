@@ -15,12 +15,6 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 2. Enable the plugin in **Project → Project Settings → Plugins**.
 3. Pre-built `hexasphere.dll` for **Windows** is included in `addons/hexasphere_generator/bin/`.
 
-### Linux
-
-Pre-built `.so` for Linux is available as a [GitHub Actions artifact](https://github.com/fwdssh/hexasphere/actions).
-Download the latest build and place `hexasphere.so` into `addons/hexasphere_generator/bin/`.
-
-Alternatively, [build from source](#building-the-native-library).
 
 ## Quick Start
 
@@ -96,43 +90,12 @@ public partial class MyPlanet : HexasphereNode
 
 Access data via `CellData` property, redraw with `RefreshVisuals()`.
 
-## Folder Structure
-
-```
-addons/hexasphere_generator/
-├── bin/                              # GDExtension binaries
-│   ├── hexasphere.dll                # Windows binary
-│   ├── hexasphere.so                 # Linux binary (build via CI)
-│   └── hexasphere.gdextension        # Entry config
-├── scripts/
-│   ├── hexasphere_node/              # Main plugin scripts
-│   │   ├── HexasphereNode.cs         # Main node (Ctrl+A → Hexasphere)
-│   │   ├── HexasphereVisualController.cs
-│   │   ├── NativeHexasphere.cs       # C# wrapper for C++ GDExtension
-│   │   ├── ICellData.cs              # Cell data interface
-│   │   ├── HexCellData.cs            # Default cell data implementation
-│   │   ├── PlanetBorderRenderer.cs
-│   │   └── shaders/
-│   │       ├── hexasphere_colors.gdshader
-│   │       └── hexasphere_borders.gdshader
-│   ├── example/                      # Demo scene
-│   │   ├── HexasphereExample.cs
-│   │   ├── Camera3d.cs
-│   │   └── BenchmarkRunner.cs
-│   └── hexasphere_math/              # C# old math reference (not used)
-├── icon.svg
-├── plugin.cfg
-├── plugin.gd
-└── example.tscn
-```
-
-
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────┐
 │  C++ (native/src/)                           │
-│  Point → Face → Tile → Hexasphere           │
+│  Point → Face → Tile → Hexasphere            │
 │         ↕                                    │
 │  NativeHexasphere (RefCounted bridge)        │
 │  - generate()                                │
@@ -142,11 +105,11 @@ addons/hexasphere_generator/
 └──────────────┬───────────────────────────────┘
                │ GDExtension
 ┌──────────────▼───────────────────────────────┐
-│  C# (addons/hexasphere_node/)                 │
+│  C# (addons/hexasphere_node/)                │
 │  NativeHexasphere.cs        — thin wrapper   │
 │  HexasphereNode.cs          — main node      │
-│  HexasphereVisualController — visuals        │
-│  PlanetBorderRenderer       — border lines    │
+│  HexasphereVisualController — visual node    │
+│  PlanetBorderRenderer       — border lines   │
 └──────────────────────────────────────────────┘
 ```
 
@@ -154,7 +117,6 @@ addons/hexasphere_generator/
 - **NativeHexasphere** — a `RefCounted` registered with GDExtension. Exposes `generate()`, `build_mesh()`, `get_border_data()`, etc.
 - **C# layer** — orchestration, Godot node management, shader material setup, border rendering.
 
-`build_mesh()` builds the `ArrayMesh` entirely in C++ using direct vertex/normal/UV2 arrays + `add_surface_from_arrays()`, bypassing `SurfaceTool` entirely.
 
 ## Building the Native Library
 
@@ -175,10 +137,6 @@ The binary is output to `addons/hexasphere_generator/bin/`.
 
 Requires a working C++17 compiler, Python 3, and SCons.
 
-### Via GitHub Actions
-
-Push to `main` — the [build workflow](.github/workflows/build.yml) automatically compiles `hexasphere.so` for Linux.
-Download the artifact from the Actions page and extract into `addons/hexasphere_generator/bin/`.
 
 ## Benchmark
 
