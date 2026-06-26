@@ -2,6 +2,13 @@ using Godot;
 using System.Threading.Tasks;
 public partial class HexasphereNode : Node3D
 {
+    [Signal] public delegate void TileClickedEventHandler(int tileIndex, Vector3 worldPosition);
+    [Signal] public delegate void TileHoveredEventHandler(int tileIndex);
+    [Signal] public delegate void TileDeselectedEventHandler();
+
+
+
+
     [ExportGroup("Geometry")]
     [Export] public float PlanetRadius = 20;
     [Export] public int SubDivision = 20;
@@ -10,24 +17,43 @@ public partial class HexasphereNode : Node3D
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
     [Export(PropertyHint.Range, "0.0, 1.0")] public float Roughness = 0.6f;
 
+
+    [Export] public bool IsClickVisualEnabled = true;
+    [Export] public Color ClickColor = Colors.Black;
+
+    [Export] public bool IsHoverVisualEnabled = true;
+    [Export] public Color HoverColor = Colors.Red;
+
+
+
     [ExportGroup("use it if HexSize =1f and u need borders")]
     [Export] public bool IsBordering = true;
     [Export] public Color BorderColor = Colors.White;
 
-    private HexasphereVisualController VisualController;
 
+
+
+
+
+
+
+
+
+
+    private HexasphereVisualController VisualController;
     private ICellData[] _cellDatas;
     private int _selectedTileIndex = -1;
+    private int _hoveredTileIndex = -1;
     private bool _planetReady = false;
 
     private NativeHexasphere _pendingHexasphere;
     private ArrayMesh        _pendingMesh;
     private ICellData[]       _pendingCellDatas;
-
     private Vector3[] _tileDirs;
 
     public bool IsReady => _planetReady;
     public int TileCount => _cellDatas?.Length ?? 0;
+
 
     virtual protected ICellData[] CreateCellData(int count)
     {
@@ -45,6 +71,7 @@ public partial class HexasphereNode : Node3D
         return data;
     }
 
+
     public override void _Ready()
     {
         VisualController = GetNodeOrNull<HexasphereVisualController>("HexasphereVisual");
@@ -57,7 +84,7 @@ public partial class HexasphereNode : Node3D
         Task.Run(GeneratePlanetAsync);
     }
 
-    private void GeneratePlanetAsync()
+    virtual protected void GeneratePlanetAsync()
 {
     var hexasphere = new NativeHexasphere();
     hexasphere.Generate(PlanetRadius, SubDivision, HexSize);
@@ -78,7 +105,7 @@ public partial class HexasphereNode : Node3D
     CallDeferred(MethodName.FinalizePlanet);
 }
 
-private void FinalizePlanet()
+virtual protected void FinalizePlanet()
 {
 
     _cellDatas = _pendingCellDatas;
@@ -95,10 +122,10 @@ private void FinalizePlanet()
 
     VisualController.ShaderReady += OnShaderReady;
 }
-private void OnShaderReady()
+virtual protected void OnShaderReady()
 {
     VisualController.ShaderReady -= OnShaderReady;
-    VisualController.Draw(_cellDatas, _selectedTileIndex);
+    VisualController.Draw(_cellDatas);
     VisualController.DisposeHexasphere();
     _planetReady = true;
 }
@@ -121,13 +148,63 @@ private void OnShaderReady()
                 if (idx >= 0)
                 {
                     _selectedTileIndex = idx;
-                    VisualController.Draw(_cellDatas, _selectedTileIndex);
+
+                    EmitSignal(SignalName.TileClicked, idx, (Vector3)result["position"]);
+                    VisualController.Draw(_cellDatas,
+                        IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+                        IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+
+                }
+                else
+                {
+                    _selectedTileIndex = -1;
+                    EmitSignal(SignalName.TileDeselected);
+                    VisualController.Draw(_cellDatas,
+                        ClickColor, -1,
+                        IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
                 }
             }
+            else
+            {
+                _selectedTileIndex = -1;
+                EmitSignal(SignalName.TileDeselected);
+                VisualController.Draw(_cellDatas,
+                    ClickColor, -1,
+                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+            }
+        }
+
+
+
+            if (@event is InputEventMouseMotion)
+    {
+        var camera = GetViewport().GetCamera3D();
+        var space = GetWorld3D().DirectSpaceState;
+        var mousePos = GetViewport().GetMousePosition();
+        var origin = camera.ProjectRayOrigin(mousePos);
+        var end = origin + camera.ProjectRayNormal(mousePos) * 10000f;
+        var query = PhysicsRayQueryParameters3D.Create(origin, end);
+        var result = space.IntersectRay(query);
+        int newHover = -1;
+        if (result.Count > 0)
+        {
+            var dir = ((Vector3)result["position"]).Normalized();
+            newHover = FindTileIndexByDirection(dir);
+        }
+        if (newHover != _hoveredTileIndex)
+        {
+            _hoveredTileIndex = newHover;
+            EmitSignal(SignalName.TileHovered, newHover);
+            VisualController.Draw(_cellDatas,
+                IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+                IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+
         }
     }
 
-    private void BuildSpatialIndex(NativeHexasphere hexasphere)
+    }
+
+    virtual protected void BuildSpatialIndex(NativeHexasphere hexasphere)
     {
         int count = hexasphere.GetTileCount();
         _tileDirs = new Vector3[count];
@@ -139,7 +216,7 @@ private void OnShaderReady()
         }
     }
 
-    private int FindTileIndexByDirection(Vector3 direction)
+    virtual protected int FindTileIndexByDirection(Vector3 direction)
     {
         if (_tileDirs == null) return -1;
 

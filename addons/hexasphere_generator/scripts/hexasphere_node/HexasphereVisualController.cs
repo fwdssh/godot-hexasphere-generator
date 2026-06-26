@@ -2,6 +2,10 @@ using Godot;
 
 public partial class HexasphereVisualController : Node
 {
+
+
+
+
     [Signal] public delegate void ShaderReadyEventHandler();
 
     public NativeHexasphere Hexasphere { get; private set; }
@@ -29,19 +33,19 @@ public partial class HexasphereVisualController : Node
 
 
 
-    public void SetNativeHexasphere(NativeHexasphere hex)
+    virtual public void SetNativeHexasphere(NativeHexasphere hex)
     {
         Hexasphere = hex;
     }
 
-    public void SetBorderColor(Color color) => _borderRenderer?.SetBorderColor(color);
-    public void SetRoughness(float value)
+    virtual public void SetBorderColor(Color color) => _borderRenderer?.SetBorderColor(color);
+    virtual public void SetRoughness(float value)
     {
         _roughness = value;
         _planetMaterial?.SetShaderParameter("roughness", value);
     }
 
-    public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible)
+    virtual public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible)
     {
         _planetArrayMesh   = mesh;
         _tileCount         = Hexasphere.GetTileCount();
@@ -63,7 +67,7 @@ public partial class HexasphereVisualController : Node
     private int _texWidth;
     private int _texHeight;
 
-    private void InitShaderMaterial()
+    virtual protected void InitShaderMaterial()
     {
         _texWidth  = Mathf.CeilToInt(Mathf.Sqrt(_tileCount));
         _texHeight = Mathf.CeilToInt((float)_tileCount / _texWidth);
@@ -79,6 +83,7 @@ public partial class HexasphereVisualController : Node
         _planetMaterial.SetShaderParameter("tex_width",   _texWidth);
         _planetMaterial.SetShaderParameter("roughness",     _roughness);
         _planetMaterial.SetShaderParameter("selected_idx",  -1);
+        _planetMaterial.SetShaderParameter("hover_idx",  -1);
 
         _planetMeshInstance.MaterialOverride = _planetMaterial;
 
@@ -88,7 +93,7 @@ public partial class HexasphereVisualController : Node
         EmitSignal(SignalName.ShaderReady);
     }
 
-    public void Draw(ICellData[] cellDatas, int selectedIdx = -1)
+    virtual public void Draw(ICellData[] cellDatas, Color? selectedColor = null, int selectedIdx = -1, Color? hoverColor = null, int hoverIdx = -1)
     {
         if (_tileColorImage == null || cellDatas == null || cellDatas.Length == 0) return;
 
@@ -103,7 +108,16 @@ public partial class HexasphereVisualController : Node
 
         _tileColorTexture.Update(_tileColorImage);
 
-        _planetMaterial?.SetShaderParameter("selected_idx", selectedIdx);
+        if (selectedColor != null)
+        {
+            _planetMaterial?.SetShaderParameter("selected_color", new Vector4(selectedColor.Value.R, selectedColor.Value.G, selectedColor.Value.B, selectedColor.Value.A));
+            _planetMaterial?.SetShaderParameter("selected_idx", selectedIdx);
+        }
+        if (hoverColor != null)
+        {
+            _planetMaterial?.SetShaderParameter("hover_color", new Vector4(hoverColor.Value.R, hoverColor.Value.G, hoverColor.Value.B, hoverColor.Value.A));
+            _planetMaterial?.SetShaderParameter("hover_idx", hoverIdx);
+        }
 
         if (_isBorderVisible)
             _borderRenderer.UpdateBorders(Hexasphere, cellDatas, selectedIdx);
@@ -111,13 +125,13 @@ public partial class HexasphereVisualController : Node
 
 
 
-    public void DisposeHexasphere()
+    virtual public void DisposeHexasphere()
     {
         Hexasphere?.Dispose();
         Hexasphere = null;
     }
 
-    private void CreateGlobalCollider()
+    virtual protected void CreateGlobalCollider()
     {
         if (_planetMeshInstance?.Mesh == null) return;
         var staticBody     = new StaticBody3D();

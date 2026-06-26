@@ -12,6 +12,8 @@ ZoomSpeed = 0.1
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
 
-[node name="Hexasphere" type="Node3D" parent="." unique_id=1362937076]
+[node name="Hexasphere" type="Node3D" parent="." unique_id=1949153455]
 script = ExtResource("2_imyun")
+SubDivision = 150
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
