@@ -44,12 +44,12 @@ PackedVector3Array NativeHexasphere::get_tile_points(int tile_idx) const
 
     const auto &tiles = _hexasphere->get_tiles();
     const auto &boundary = tiles[tile_idx]->get_boundary_points();
-    int count = (int)boundary.size();
+    int count = tiles[tile_idx]->get_boundary_count();
 
     PackedVector3Array result;
     result.resize(count);
     for (int i = 0; i < count; i++)
-        result[i] = boundary[i]->get_position();
+        result[i] = boundary[i].get_position();
 
     return result;
 }
@@ -61,10 +61,8 @@ PackedInt32Array NativeHexasphere::get_tile_faces(int tile_idx) const
 
     const auto &tiles = _hexasphere->get_tiles();
     const auto &tile = tiles[tile_idx];
-    const auto &boundary = tile->get_boundary_points();
-    const auto &faces = tile->get_faces();
-    int face_count = (int)faces.size();
-    int boundary_count = (int)boundary.size();
+    const auto &faceIndices = tile->get_face_indices();
+    int face_count = tile->get_face_count();
 
     PackedInt32Array result;
     result.resize(face_count * 3);
@@ -72,20 +70,9 @@ PackedInt32Array NativeHexasphere::get_tile_faces(int tile_idx) const
     for (int f = 0; f < face_count; f++)
     {
         int base = f * 3;
-        for (int c = 0; c < 3; c++)
-        {
-            int pt_id = faces[f]->get_points()[c]->get_id();
-            int local_idx = 0;
-            for (int b = 0; b < boundary_count; b++)
-            {
-                if (boundary[b]->get_id() == pt_id)
-                {
-                    local_idx = b;
-                    break;
-                }
-            }
-            result[base + c] = local_idx;
-        }
+        result[base + 0] = faceIndices[f][0];
+        result[base + 1] = faceIndices[f][1];
+        result[base + 2] = faceIndices[f][2];
     }
 
     return result;
@@ -110,7 +97,7 @@ Dictionary NativeHexasphere::get_build_data() const
     int totalFaceIndices = 0;
     for (int t = 0; t < tileCount; t++)
     {
-        totalPoints += (int)tiles[t]->get_boundary_points().size();
+        totalPoints += tiles[t]->get_boundary_count();
         totalFaceIndices += (int)tiles[t]->get_faces().size() * 3;
     }
 
@@ -129,33 +116,22 @@ Dictionary NativeHexasphere::get_build_data() const
     for (int t = 0; t < tileCount; t++)
     {
         const auto &boundary = tiles[t]->get_boundary_points();
-        int ptCount = (int)boundary.size();
+        int ptCount = tiles[t]->get_boundary_count();
         pointCounts[t] = ptCount;
 
         for (int i = 0; i < ptCount; i++)
-            points[ptOffset + i] = boundary[i]->get_position();
+            points[ptOffset + i] = boundary[i].get_position();
 
-        const auto &tileFaces = tiles[t]->get_faces();
-        int faceCount = (int)tileFaces.size();
+        const auto &tileFaceIndices = tiles[t]->get_face_indices();
+        int faceCount = tiles[t]->get_face_count();
         faceVertexCounts[t] = faceCount * 3;
 
         for (int f = 0; f < faceCount; f++)
         {
             int base = faceOffset + f * 3;
-            for (int c = 0; c < 3; c++)
-            {
-                int pt_id = tileFaces[f]->get_points()[c]->get_id();
-                int local_idx = 0;
-                for (int b = 0; b < ptCount; b++)
-                {
-                    if (boundary[b]->get_id() == pt_id)
-                    {
-                        local_idx = b;
-                        break;
-                    }
-                }
-                faceIndices[base + c] = local_idx;
-            }
+            faceIndices[base + 0] = tileFaceIndices[f][0];
+            faceIndices[base + 1] = tileFaceIndices[f][1];
+            faceIndices[base + 2] = tileFaceIndices[f][2];
         }
 
         ptOffset += ptCount;
@@ -185,7 +161,7 @@ Dictionary NativeHexasphere::get_border_data() const
 
     int totalPositions = 0;
     for (int t = 0; t < tileCount; t++)
-        totalPositions += (int)tiles[t]->get_boundary_points().size() * 2;
+        totalPositions += tiles[t]->get_boundary_count() * 2;
 
     PackedVector3Array positions;
     positions.resize(totalPositions);
@@ -196,14 +172,14 @@ Dictionary NativeHexasphere::get_border_data() const
     for (int t = 0; t < tileCount; t++)
     {
         const auto &boundary = tiles[t]->get_boundary_points();
-        int ptCount = (int)boundary.size();
+        int ptCount = tiles[t]->get_boundary_count();
         tileLineCounts[t] = ptCount * 2;
 
         for (int p = 0; p < ptCount; p++)
         {
             int next = (p + 1) % ptCount;
-            positions[posOffset + p * 2 + 0] = boundary[p]->get_position();
-            positions[posOffset + p * 2 + 1] = boundary[next]->get_position();
+            positions[posOffset + p * 2 + 0] = boundary[p].get_position();
+            positions[posOffset + p * 2 + 1] = boundary[next].get_position();
         }
 
         posOffset += ptCount * 2;
@@ -248,9 +224,9 @@ Dictionary NativeHexasphere::build_mesh() const
     for (int t = 0; t < tileCount; t++)
     {
         const auto &boundary = tiles[t]->get_boundary_points();
-        int ptCount = (int)boundary.size();
-        const auto &tileFaces = tiles[t]->get_faces();
-        int faceCount = (int)tileFaces.size();
+        int ptCount = tiles[t]->get_boundary_count();
+        const auto &tileFaceIndices = tiles[t]->get_face_indices();
+        int faceCount = tiles[t]->get_face_count();
 
         tileVertexCounts[t] = faceCount * 3;
         Vector2 tileUV(t, 0.0f);
@@ -258,27 +234,15 @@ Dictionary NativeHexasphere::build_mesh() const
         for (int f = 0; f < faceCount; f++)
         {
             int base = indicesOffset + f * 3;
-            const auto &facePoints = tileFaces[f]->get_points();
-
-            int localIdx[3];
-            for (int c = 0; c < 3; c++)
-            {
-                int pt_id = facePoints[c]->get_id();
-                localIdx[c] = 0;
-                for (int b = 0; b < ptCount; b++)
-                {
-                    if (boundary[b]->get_id() == pt_id)
-                    {
-                        localIdx[c] = b;
-                        break;
-                    }
-                }
-            }
+            int localIdx[3] = {
+                tileFaceIndices[f][0],
+                tileFaceIndices[f][1],
+                tileFaceIndices[f][2]};
 
             int order[3] = { localIdx[0], localIdx[2], localIdx[1] };
             for (int v = 0; v < 3; v++)
             {
-                Vector3 pos = boundary[order[v]]->get_position();
+                Vector3 pos = boundary[order[v]].get_position();
                 int vi = globalVertexIndex++;
                 vertices[vi] = pos;
                 normals[vi] = pos.normalized();

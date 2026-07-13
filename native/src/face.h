@@ -17,11 +17,12 @@ private:
 
 public:
     Face(Point *point1, Point *point2, Point *point3, bool trackFaceInPoints = true);
+    Face(Point *point1, Point *point2, Point *point3, int localId); // local id, no global counter (thread-safe)
 
     Face(const Face &) = delete;
     Face &operator=(const Face &) = delete;
-    Face(Face &&) = delete;
-    Face &operator=(Face &&) = delete;
+    Face(Face &&other) noexcept;
+    Face &operator=(Face &&other) noexcept;
 
     int get_id() const { return _id; }
     Point *const *get_points() const { return _points; }

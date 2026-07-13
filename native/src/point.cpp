@@ -6,8 +6,16 @@
 
 int Point::_globalIdCounter = 0;
 
+Point::Point() : _id(-1), _position(Vector3()) {}
+
 Point::Point(const Vector3 &position)
     : _id(++_globalIdCounter), _position(position)
+{
+    _faces.reserve(6);
+}
+
+Point::Point(const Vector3 &position, int localId)
+    : _id(localId), _position(position)
 {
     _faces.reserve(6);
 }

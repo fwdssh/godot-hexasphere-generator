@@ -4,7 +4,10 @@
 #include "tile.h"
 #include <godot_cpp/core/math.hpp>
 #include <cmath>
+#include <algorithm>
+#include <execution>
 #include <functional>
+#include <numeric>
 #include <stdexcept>
 
 Hexasphere::~Hexasphere() = default;
@@ -135,14 +138,25 @@ void Hexasphere::subdivide_icosahedron(const std::vector<Face *> &ico_faces)
 
 void Hexasphere::construct_tiles()
 {
-    for (const auto &pt : _points)
-        _tiles.push_back(std::make_unique<Tile>(pt.get(), _radius, _hexSize));
+    int n = (int)_points.size();
+    _tiles.resize(n);
 
+    std::vector<int> indices(n);
+    std::iota(indices.begin(), indices.end(), 0);
+
+    // Parallel tile creation — each Tile reads only from its Point (read-only)
+    std::for_each(std::execution::par, indices.begin(), indices.end(), [this](int i) {
+        _tiles[i] = std::make_unique<Tile>(_points[i].get(), _radius, _hexSize);
+    });
+
+    // Build tile map (sequential — unordered_map is not thread-safe for writes)
     std::unordered_map<int, Tile *> tile_map;
-    tile_map.reserve(_tiles.size());
+    tile_map.reserve(n);
     for (const auto &tile : _tiles)
         tile_map[tile->get_center()->get_id()] = tile.get();
 
-    for (const auto &tile : _tiles)
-        tile->resolve_neighbour_tiles_fast(tile_map);
+    // Parallel neighbour resolution — each Tile writes only to its own _neighbours
+    std::for_each(std::execution::par, indices.begin(), indices.end(), [this, &tile_map](int i) {
+        _tiles[i]->resolve_neighbour_tiles_fast(tile_map);
+    });
 }

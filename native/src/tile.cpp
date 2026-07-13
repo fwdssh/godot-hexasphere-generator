@@ -10,9 +10,7 @@ Tile::Tile(Point *center, float radius, float size)
     std::vector<Face *> icosahedron_faces = center->get_ordered_faces();
     int faceCount = (int)icosahedron_faces.size();
 
-    _neighbourCenters.reserve(faceCount * 2);
-    _neighbours.reserve(faceCount * 2);
-    _boundaryPoints.reserve(faceCount);
+    _faces.reserve(faceCount);
 
     store_neighbour_centers(icosahedron_faces);
     build_faces(icosahedron_faces);
@@ -27,43 +25,57 @@ void Tile::store_neighbour_centers(const std::vector<Face *> &icosahedron_faces)
         face->get_other_points(_center, a, b);
 
         if (seen.insert(a->get_id()).second)
-            _neighbourCenters.push_back(a);
+            _neighbourCenters[_neighbourCenterCount++] = a;
         if (seen.insert(b->get_id()).second)
-            _neighbourCenters.push_back(b);
+            _neighbourCenters[_neighbourCenterCount++] = b;
     }
 }
 
 void Tile::build_faces(const std::vector<Face *> &icosahedron_faces)
 {
     Vector3 centerPos = _center->get_position();
+    int localPtId = 0;
     for (Face *face : icosahedron_faces)
     {
         Vector3 lerped = centerPos.lerp(face->get_center_position(), _size);
         float scale = _radius / lerped.length();
-        _boundaryPoints.push_back(std::make_unique<Point>(lerped * scale));
+        _boundaryPoints[_boundaryCount++] = Point(lerped * scale, localPtId++);
     }
 
-    int n = (int)_boundaryPoints.size();
+    int n = _boundaryCount;
     if (n < 3) return;
 
     _faces.reserve(n - 2);
+    int localFaceId = 0;
     for (int i = 1; i < n - 1; i++)
     {
-        _faces.push_back(std::make_unique<Face>(
-            _boundaryPoints[0].get(),
-            _boundaryPoints[i].get(),
-            _boundaryPoints[i + 1].get(),
-            false));
+        _faces.emplace_back(
+            &_boundaryPoints[0],
+            &_boundaryPoints[i],
+            &_boundaryPoints[i + 1],
+            localFaceId++);
+
+        // Determine actual local boundary indices by pointer comparison — O(1) per vertex
+        auto findLocalIdx = [&](Point *p) -> int {
+            if (p == &_boundaryPoints[0]) return 0;
+            if (p == &_boundaryPoints[i]) return i;
+            return i + 1;
+        };
+
+        _faceIndices[_faceCount++] = {
+            findLocalIdx(_faces.back().get_points()[0]),
+            findLocalIdx(_faces.back().get_points()[1]),
+            findLocalIdx(_faces.back().get_points()[2])};
     }
 }
 
 void Tile::resolve_neighbour_tiles_fast(const std::unordered_map<int, Tile *> &tile_map)
 {
-    _neighbours.clear();
-    for (Point *c : _neighbourCenters)
+    _neighbourCount = 0;
+    for (int i = 0; i < _neighbourCenterCount; i++)
     {
-        auto it = tile_map.find(c->get_id());
+        auto it = tile_map.find(_neighbourCenters[i]->get_id());
         if (it != tile_map.end())
-            _neighbours.push_back(it->second);
+            _neighbours[_neighbourCount++] = it->second;
     }
 }

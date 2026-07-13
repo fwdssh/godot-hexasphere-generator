@@ -20,7 +20,9 @@ private:
     std::vector<Face *> _faces;
 
 public:
+    Point();
     Point(const Vector3 &position);
+    Point(const Vector3 &position, int localId); // local id, no global counter (thread-safe)
     Point(const Point &other) = delete;
     Point &operator=(const Point &other) = delete;
     Point(Point &&other) noexcept;
