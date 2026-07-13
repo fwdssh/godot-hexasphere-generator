@@ -7,6 +7,16 @@ public class NativeHexasphere : IDisposable
     private GodotObject _native;
     private bool _disposed;
 
+    private static readonly StringName MethodGenerate = "generate";
+    private static readonly StringName MethodGetTileCount = "get_tile_count";
+    private static readonly StringName MethodGetTileCenter = "get_tile_center";
+    private static readonly StringName MethodGetTilePoints = "get_tile_points";
+    private static readonly StringName MethodGetTileFaces = "get_tile_faces";
+    private static readonly StringName MethodGetBuildData = "get_build_data";
+    private static readonly StringName MethodGetBorderData = "get_border_data";
+    private static readonly StringName MethodBuildMesh = "build_mesh";
+    private static readonly StringName MethodGetAllTileCenters = "get_all_tile_centers";
+
     public NativeHexasphere()
     {
         _native = ClassDB.Instantiate("NativeHexasphere").AsGodotObject();
@@ -23,41 +33,46 @@ public class NativeHexasphere : IDisposable
 
     public void Generate(float radius, int divisions, float hexSize)
     {
-        _native.Call("generate", radius, divisions, hexSize);
+        _native.Call(MethodGenerate, radius, divisions, hexSize);
     }
 
     public int GetTileCount()
     {
-        return (int)_native.Call("get_tile_count");
+        return (int)_native.Call(MethodGetTileCount);
     }
 
     public Vector3 GetTileCenter(int tileIdx)
     {
-        return (Vector3)_native.Call("get_tile_center", tileIdx);
+        return (Vector3)_native.Call(MethodGetTileCenter, tileIdx);
     }
 
     public Vector3[] GetTilePoints(int tileIdx)
     {
-        return (Vector3[])_native.Call("get_tile_points", tileIdx);
+        return (Vector3[])_native.Call(MethodGetTilePoints, tileIdx);
     }
 
     public int[] GetTileFaces(int tileIdx)
     {
-        return (int[])_native.Call("get_tile_faces", tileIdx);
+        return (int[])_native.Call(MethodGetTileFaces, tileIdx);
     }
 
     public Dictionary GetBuildData()
     {
-        return (Dictionary)_native.Call("get_build_data");
+        return (Dictionary)_native.Call(MethodGetBuildData);
     }
 
     public Dictionary GetBorderData()
     {
-        return (Dictionary)_native.Call("get_border_data");
+        return (Dictionary)_native.Call(MethodGetBorderData);
     }
 
     public Dictionary BuildMesh()
     {
-        return (Dictionary)_native.Call("build_mesh");
+        return (Dictionary)_native.Call(MethodBuildMesh);
+    }
+
+    public Vector3[] GetAllTileCenters()
+    {
+        return (Vector3[])_native.Call(MethodGetAllTileCenters);
     }
 }

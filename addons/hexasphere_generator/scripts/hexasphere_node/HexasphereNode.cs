@@ -1,5 +1,6 @@
 using Godot;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 public partial class HexasphereNode : Node3D
 {
     [Signal] public delegate void TileClickedEventHandler(int tileIndex, Vector3 worldPosition);
@@ -50,9 +51,12 @@ public partial class HexasphereNode : Node3D
     private bool _planetReady = false;
 
     private NativeHexasphere _pendingHexasphere;
-    private ArrayMesh        _pendingMesh;
+    private Vector3[] _pendingCenters;
     private ICellData[]       _pendingCellDatas;
     private Vector3[] _tileDirs;
+
+    private const float BucketScale = 5f;
+    private Dictionary<Vector3I, List<int>> _spatialBuckets;
 
     public bool IsReady => _planetReady;
     public int TileCount => _cellDatas?.Length ?? 0;
@@ -84,43 +88,45 @@ public partial class HexasphereNode : Node3D
             VisualController.Name = "HexasphereVisual";
             AddChild(VisualController);
         }
-        Task.Run(GeneratePlanetAsync);
+
+        // Create NativeHexasphere on main thread (Godot RefCounted)
+        var hexasphere = new NativeHexasphere();
+        Task.Run(() => GenerateInBackground(hexasphere));
     }
 
-    virtual protected void GeneratePlanetAsync()
-{
-    var hexasphere = new NativeHexasphere();
-    hexasphere.Generate(PlanetRadius, SubDivision, HexSize);
+    virtual protected void GenerateInBackground(NativeHexasphere hexasphere)
+    {
+        // Pure C++ generation + data extraction — safe on background thread
+        hexasphere.Generate(PlanetRadius, SubDivision, HexSize);
 
-    var result = hexasphere.BuildMesh();
-    var mesh = (ArrayMesh)result["mesh"];
+        int tileCount = hexasphere.GetTileCount();
+        var centers = hexasphere.GetAllTileCenters();
+        var cellDatas = CreateCellData(tileCount);
 
+        _pendingHexasphere = hexasphere;
+        _pendingCenters = centers;
+        _pendingCellDatas = cellDatas;
 
-
-    int tileCount = hexasphere.GetTileCount();
-    var cellDatas = CreateCellData(tileCount);
-
-
-    _pendingHexasphere = hexasphere;
-    _pendingMesh       = mesh;
-    _pendingCellDatas  = cellDatas;
-
-    CallDeferred(MethodName.FinalizePlanet);
-}
+        CallDeferred(MethodName.FinalizePlanet);
+    }
 
 virtual protected void FinalizePlanet()
 {
 
     _cellDatas = _pendingCellDatas;
+
+    var result = _pendingHexasphere.BuildMesh();
+    var mesh = (ArrayMesh)result["mesh"];
+
     VisualController.SetNativeHexasphere(_pendingHexasphere);
-    VisualController.ApplyGenerated(_pendingMesh, IsBordering);
+    VisualController.ApplyGenerated(mesh, IsBordering);
     VisualController.SetBorderColor(BorderColor);
     VisualController.SetRoughness(Roughness);
-    BuildSpatialIndex(_pendingHexasphere);
+    BuildSpatialIndex(_pendingCenters);
 
 
     _pendingHexasphere = null;
-    _pendingMesh       = null;
+    _pendingCenters    = null;
     _pendingCellDatas  = null;
 
     VisualController.ShaderReady += OnShaderReady;
@@ -133,54 +139,11 @@ virtual protected void OnShaderReady()
     _planetReady = true;
 }
 
-    public override void _UnhandledInput(InputEvent @event)
+    private bool TryRaycastToTile(out Vector3 hitPosition, out int tileIndex)
     {
-        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } && IsClickEnabled)
-        {
-            var camera = GetViewport().GetCamera3D();
-            var space = GetWorld3D().DirectSpaceState;
-            var mousePos = GetViewport().GetMousePosition();
-            var origin = camera.ProjectRayOrigin(mousePos);
-            var end = origin + camera.ProjectRayNormal(mousePos) * 10000f;
-            var query = PhysicsRayQueryParameters3D.Create(origin, end);
-            var result = space.IntersectRay(query);
-            if (result.Count > 0)
-            {
-                var dir = ((Vector3)result["position"]).Normalized();
-                int idx = FindTileIndexByDirection(dir);
-                if (idx >= 0)
-                {
-                    _selectedTileIndex = idx;
+        hitPosition = Vector3.Zero;
+        tileIndex = -1;
 
-                    EmitSignal(SignalName.TileClicked, idx, (Vector3)result["position"]);
-                    VisualController.Draw(_cellDatas,
-                        IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-                        IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-
-                }
-                else
-                {
-                    _selectedTileIndex = -1;
-                    EmitSignal(SignalName.TileDeselected);
-                    VisualController.Draw(_cellDatas,
-                        ClickColor, -1,
-                        IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-                }
-            }
-            else
-            {
-                _selectedTileIndex = -1;
-                EmitSignal(SignalName.TileDeselected);
-                VisualController.Draw(_cellDatas,
-                    ClickColor, -1,
-                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-            }
-        }
-
-
-
-        if (@event is InputEventMouseMotion && IsHoverEnabled)
-    {
         var camera = GetViewport().GetCamera3D();
         var space = GetWorld3D().DirectSpaceState;
         var mousePos = GetViewport().GetMousePosition();
@@ -188,52 +151,122 @@ virtual protected void OnShaderReady()
         var end = origin + camera.ProjectRayNormal(mousePos) * 10000f;
         var query = PhysicsRayQueryParameters3D.Create(origin, end);
         var result = space.IntersectRay(query);
-        int newHover = -1;
+
         if (result.Count > 0)
         {
-            var dir = ((Vector3)result["position"]).Normalized();
-            newHover = FindTileIndexByDirection(dir);
+            hitPosition = (Vector3)result["position"];
+            var dir = hitPosition.Normalized();
+            tileIndex = FindTileIndexByDirection(dir);
+            return true;
         }
-        if (newHover != _hoveredTileIndex)
-        {
-            _hoveredTileIndex = newHover;
-            EmitSignal(SignalName.TileHovered, newHover);
-            VisualController.Draw(_cellDatas,
-                IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-                IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-
-        }
+        return false;
     }
 
-    }
-
-    virtual protected void BuildSpatialIndex(NativeHexasphere hexasphere)
+    public override void _UnhandledInput(InputEvent @event)
     {
-        int count = hexasphere.GetTileCount();
-        _tileDirs = new Vector3[count];
-
-        for (int i = 0; i < count; i++)
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } && IsClickEnabled)
         {
-            var cp = hexasphere.GetTileCenter(i);
-            _tileDirs[i] = cp.Normalized();
+            if (TryRaycastToTile(out var hitPos, out int idx) && idx >= 0)
+            {
+                _selectedTileIndex = idx;
+                EmitSignal(SignalName.TileClicked, idx, hitPos);
+                VisualController.Draw(_cellDatas,
+                    IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+            }
+            else
+            {
+                _selectedTileIndex = -1;
+                EmitSignal(SignalName.TileDeselected);
+                VisualController.Draw(_cellDatas,
+                    IsClickVisualEnabled ? ClickColor : null, -1,
+                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+            }
+        }
+
+
+
+        if (@event is InputEventMouseMotion && IsHoverEnabled)
+        {
+            int newHover = -1;
+            if (TryRaycastToTile(out _, out int idx))
+            {
+                newHover = idx;
+            }
+            if (newHover != _hoveredTileIndex)
+            {
+                _hoveredTileIndex = newHover;
+                EmitSignal(SignalName.TileHovered, newHover);
+                VisualController.Draw(_cellDatas,
+                    IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+            }
+        }
+
+    }
+
+    virtual protected void BuildSpatialIndex(Vector3[] centers)
+    {
+        _tileDirs = new Vector3[centers.Length];
+        for (int i = 0; i < centers.Length; i++)
+        {
+            _tileDirs[i] = centers[i].Normalized();
+        }
+
+        // Build spatial hash buckets
+        BuildSpatialBuckets();
+    }
+
+    private static Vector3I Quantize(Vector3 v)
+    {
+        return new Vector3I(
+            (int)Mathf.Round(v.X * BucketScale),
+            (int)Mathf.Round(v.Y * BucketScale),
+            (int)Mathf.Round(v.Z * BucketScale)
+        );
+    }
+
+    private void BuildSpatialBuckets()
+    {
+        _spatialBuckets = new Dictionary<Vector3I, List<int>>();
+        for (int i = 0; i < _tileDirs.Length; i++)
+        {
+            var key = Quantize(_tileDirs[i]);
+            if (!_spatialBuckets.TryGetValue(key, out var list))
+            {
+                list = new List<int>();
+                _spatialBuckets[key] = list;
+            }
+            list.Add(i);
         }
     }
 
     virtual protected int FindTileIndexByDirection(Vector3 direction)
     {
-        if (_tileDirs == null) return -1;
+        if (_tileDirs == null || _spatialBuckets == null) return -1;
 
         Vector3 normDir = direction.Normalized();
-        int bestIndex = -1;
-        float maxDot = -2f;
+        var key = Quantize(normDir);
 
-        for (int i = 0; i < _tileDirs.Length; i++)
+        float maxDot = -2f;
+        int bestIndex = -1;
+
+        for (int dx = -1; dx <= 1; dx++)
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dz = -1; dz <= 1; dz++)
         {
-            float d = normDir.Dot(_tileDirs[i]);
-            if (d > maxDot)
+            var neighbor = new Vector3I(key.X + dx, key.Y + dy, key.Z + dz);
+            if (_spatialBuckets.TryGetValue(neighbor, out var list))
             {
-                maxDot = d;
-                bestIndex = i;
+                foreach (var idx in list)
+                {
+                    float d = normDir.Dot(_tileDirs[idx]);
+                    if (d > maxDot)
+                    {
+                        maxDot = d;
+                        bestIndex = idx;
+                    }
+                }
             }
         }
 

@@ -29,6 +29,7 @@ public:
 
     int get_tile_count() const;
     Vector3 get_tile_center(int tile_idx) const;
+    PackedVector3Array get_all_tile_centers() const;
     PackedVector3Array get_tile_points(int tile_idx) const;
     PackedInt32Array get_tile_faces(int tile_idx) const;
     Dictionary get_build_data() const;

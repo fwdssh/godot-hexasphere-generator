@@ -37,7 +37,8 @@ public class PlanetBorderRenderer
                 Vector3 p1 = positions[idx + j];
                 Vector3 p2 = positions[idx + j + 1];
                 Vector3 mid = (p1 + p2) * 0.5f;
-                if (seenMidpoints.Add(mid))
+                var snappedMid = SnapToGrid(mid, 0.001f);
+                if (seenMidpoints.Add(snappedMid))
                 {
                     vertPositions.Add(p1 * 1.0001f);
                     vertPositions.Add(p2 * 1.0001f);
@@ -82,5 +83,14 @@ public class PlanetBorderRenderer
     {
         _borderColor = color;
         _borderMaterial?.SetShaderParameter("border_color", color);
+    }
+
+    private static Vector3 SnapToGrid(Vector3 v, float gridSize)
+    {
+        return new Vector3(
+            Mathf.Round(v.X / gridSize) * gridSize,
+            Mathf.Round(v.Y / gridSize) * gridSize,
+            Mathf.Round(v.Z / gridSize) * gridSize
+        );
     }
 }

@@ -13,6 +13,7 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("generate", "radius", "divisions", "hexSize"), &NativeHexasphere::generate);
     ClassDB::bind_method(D_METHOD("get_tile_count"), &NativeHexasphere::get_tile_count);
     ClassDB::bind_method(D_METHOD("get_tile_center", "tile_idx"), &NativeHexasphere::get_tile_center);
+    ClassDB::bind_method(D_METHOD("get_all_tile_centers"), &NativeHexasphere::get_all_tile_centers);
     ClassDB::bind_method(D_METHOD("get_tile_points", "tile_idx"), &NativeHexasphere::get_tile_points);
     ClassDB::bind_method(D_METHOD("get_tile_faces", "tile_idx"), &NativeHexasphere::get_tile_faces);
     ClassDB::bind_method(D_METHOD("get_build_data"), &NativeHexasphere::get_build_data);
@@ -35,6 +36,22 @@ Vector3 NativeHexasphere::get_tile_center(int tile_idx) const
     if (!_hexasphere || tile_idx < 0 || tile_idx >= _hexasphere->get_tile_count())
         return Vector3();
     return _hexasphere->get_tiles()[tile_idx]->get_center()->get_position();
+}
+
+PackedVector3Array NativeHexasphere::get_all_tile_centers() const
+{
+    if (!_hexasphere)
+        return PackedVector3Array();
+
+    const auto &tiles = _hexasphere->get_tiles();
+    int tileCount = _hexasphere->get_tile_count();
+
+    PackedVector3Array result;
+    result.resize(tileCount);
+    for (int i = 0; i < tileCount; i++)
+        result[i] = tiles[i]->get_center()->get_position();
+
+    return result;
 }
 
 PackedVector3Array NativeHexasphere::get_tile_points(int tile_idx) const
