@@ -5,12 +5,19 @@
 #include <godot_cpp/core/math.hpp>
 #include <cmath>
 #include <functional>
+#include <stdexcept>
 
 Hexasphere::~Hexasphere() = default;
 
 Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
     : _radius(radius), _divisions(divisions), _hexSize(hexSize)
 {
+    if (radius <= 0.0f)
+        throw std::invalid_argument("Radius must be positive");
+
+    _pointEpsilon = 1e-5f * _radius;
+    _gridScale = 2e5f / _radius; // cell_width = 0.5 * epsilon, запас от float-погрешностей
+
     int estimatedPoints = 10 * divisions * divisions + 2;
     _points.reserve(estimatedPoints);
     _pointGrid.reserve(estimatedPoints);
@@ -61,12 +68,14 @@ std::vector<Face *> Hexasphere::construct_icosahedron()
     };
 }
 
-Point *Hexasphere::cache_point(const Vector3 &position)
+Point *Hexasphere::cache_point(const Vector3 &raw_position)
 {
+    Vector3 position = raw_position.normalized() * _radius;
+
     Vector3i gridPos(
-        (int)std::round(position.x * GridScale),
-        (int)std::round(position.y * GridScale),
-        (int)std::round(position.z * GridScale)
+        (int)std::round(position.x * _gridScale),
+        (int)std::round(position.y * _gridScale),
+        (int)std::round(position.z * _gridScale)
     );
 
     for (int x = -1; x <= 1; x++)
@@ -75,7 +84,7 @@ Point *Hexasphere::cache_point(const Vector3 &position)
     {
         auto it = _pointGrid.find(gridPos + Vector3i(x, y, z));
         if (it != _pointGrid.end())
-            if (Point::is_overlapping(*it->second, position))
+            if (Point::is_overlapping(*it->second, position, _pointEpsilon))
                 return it->second;
     }
 

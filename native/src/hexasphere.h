@@ -29,12 +29,13 @@ private:
     int _divisions;
     float _hexSize;
 
+    float _pointEpsilon;
+    float _gridScale;
+
     std::vector<std::unique_ptr<Point>> _points;
     std::vector<std::unique_ptr<Face>> _faces;
     std::vector<std::unique_ptr<Tile>> _tiles;
     std::unordered_map<Vector3i, Point *, Vector3iHash> _pointGrid;
-
-    static constexpr float GridScale = 5000.0f;
 
 public:
     Hexasphere(float radius, int divisions, float hexSize);

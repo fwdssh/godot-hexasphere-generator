@@ -6,7 +6,7 @@ public partial class Camera3d : Camera3D
     [Export] public float ZoomSpeed = 1.0f;
     
     [Export] public float MinZoom = 1.0f; 
-    [Export] public float MaxZoom = 60.0f;
+    [Export] public float MaxZoom = 360.0f;
 
     private bool _isDragging = false;
 

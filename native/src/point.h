@@ -19,8 +19,6 @@ private:
     Vector3 _position;
     std::vector<Face *> _faces;
 
-    static constexpr float PointComparisonAccuracy = 0.0001f;
-
 public:
     Point(const Vector3 &position);
     Point(const Point &other) = delete;
@@ -39,8 +37,8 @@ public:
 
     std::vector<Face *> get_ordered_faces();
 
-    static bool is_overlapping(const Point &a, const Point &b);
-    static bool is_overlapping(const Point &a, const Vector3 &b_pos);
+    static bool is_overlapping(const Point &a, const Point &b, float epsilon);
+    static bool is_overlapping(const Point &a, const Vector3 &b_pos, float epsilon);
 
     std::string to_string() const;
 };

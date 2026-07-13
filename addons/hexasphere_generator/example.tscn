@@ -6,15 +6,14 @@
 [node name="example" type="Node" unique_id=164599645]
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=878881748]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 14.09449)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 240.094)
 script = ExtResource("2_76mee")
-ZoomSpeed = 0.1
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
 
 [node name="Hexasphere" type="Node3D" parent="." unique_id=1949153455]
 script = ExtResource("2_imyun")
-SubDivision = 350
+PlanetRadius = 100.0
 IsClickEnabled = false
 IsClickVisualEnabled = false
 IsHoverEnabled = false

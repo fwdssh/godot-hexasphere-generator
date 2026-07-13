@@ -36,12 +36,10 @@ void Tile::store_neighbour_centers(const std::vector<Face *> &icosahedron_faces)
 void Tile::build_faces(const std::vector<Face *> &icosahedron_faces)
 {
     Vector3 centerPos = _center->get_position();
-    float projRadiusHalf = _radius * 0.5f;
-
     for (Face *face : icosahedron_faces)
     {
         Vector3 lerped = centerPos.lerp(face->get_center_position(), _size);
-        float scale = projRadiusHalf / lerped.length();
+        float scale = _radius / lerped.length();
         _boundaryPoints.push_back(std::make_unique<Point>(lerped * scale));
     }
 
