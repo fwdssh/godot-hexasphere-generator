@@ -56,7 +56,7 @@ public partial class HexasphereNode : Node3D
     private ICellData[]       _pendingCellDatas;
     private Vector3[] _tileDirs;
 
-    private const float BucketScale = 5f;
+    private float _bucketScale = 5f;
     private Dictionary<Vector3I, List<int>> _spatialBuckets;
 
     public bool IsReady => _planetReady;
@@ -146,7 +146,7 @@ virtual protected void FinalizePlanet()
 virtual protected void OnShaderReady()
 {
     VisualController.ShaderReady -= OnShaderReady;
-    VisualController.Draw(_cellDatas);
+    VisualController.DrawColors(_cellDatas);
     VisualController.DisposeHexasphere();
     _planetReady = true;
 }
@@ -157,21 +157,34 @@ virtual protected void OnShaderReady()
         tileIndex = -1;
 
         var camera = GetViewport().GetCamera3D();
-        var space = GetWorld3D().DirectSpaceState;
-        var mousePos = GetViewport().GetMousePosition();
-        var origin = camera.ProjectRayOrigin(mousePos);
-        var end = origin + camera.ProjectRayNormal(mousePos) * 10000f;
-        var query = PhysicsRayQueryParameters3D.Create(origin, end);
-        var result = space.IntersectRay(query);
+        if (camera == null) return false;
 
-        if (result.Count > 0)
-        {
-            hitPosition = (Vector3)result["position"];
-            var dir = hitPosition.Normalized();
-            tileIndex = FindTileIndexByDirection(dir);
-            return true;
-        }
-        return false;
+        var mousePos = GetViewport().GetMousePosition();
+        Vector3 origin = ToLocal(camera.ProjectRayOrigin(mousePos));
+        Vector3 dir    = (ToLocal(camera.ProjectRayOrigin(mousePos) + camera.ProjectRayNormal(mousePos)) - origin).Normalized();
+
+        if (!RaySphereIntersect(origin, dir, PlanetRadius, out hitPosition))
+            return false;
+
+        tileIndex = FindTileIndexByDirection(hitPosition.Normalized());
+        return tileIndex >= 0;
+    }
+
+    private static bool RaySphereIntersect(Vector3 origin, Vector3 dir, float radius, out Vector3 hit)
+    {
+        float b = origin.Dot(dir);
+        float c = origin.Dot(origin) - radius * radius;
+        float disc = b * b - c;
+        if (disc < 0f) { hit = Vector3.Zero; return false; }
+
+        float sq = Mathf.Sqrt(disc);
+        float t1 = -b - sq;
+        float t2 = -b + sq;
+        float t = t1 >= 0f ? t1 : t2;
+        if (t < 0f) { hit = Vector3.Zero; return false; }
+
+        hit = origin + dir * t;
+        return true;
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -182,7 +195,7 @@ virtual protected void OnShaderReady()
             {
                 _selectedTileIndex = idx;
                 EmitSignal(SignalName.TileClicked, idx, hitPos);
-                VisualController.Draw(_cellDatas,
+                VisualController.SetSelection(
                     IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
@@ -190,7 +203,7 @@ virtual protected void OnShaderReady()
             {
                 _selectedTileIndex = -1;
                 EmitSignal(SignalName.TileDeselected);
-                VisualController.Draw(_cellDatas,
+                VisualController.SetSelection(
                     IsClickVisualEnabled ? ClickColor : null, -1,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
@@ -209,7 +222,7 @@ virtual protected void OnShaderReady()
             {
                 _hoveredTileIndex = newHover;
                 EmitSignal(SignalName.TileHovered, newHover);
-                VisualController.Draw(_cellDatas,
+                VisualController.SetSelection(
                     IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
@@ -225,16 +238,18 @@ virtual protected void OnShaderReady()
             _tileDirs[i] = centers[i].Normalized();
         }
 
+        _bucketScale = Mathf.Sqrt(centers.Length) * 0.35f;
+
         // Build spatial hash buckets
         BuildSpatialBuckets();
     }
 
-    private static Vector3I Quantize(Vector3 v)
+    private Vector3I Quantize(Vector3 v)
     {
         return new Vector3I(
-            (int)Mathf.Round(v.X * BucketScale),
-            (int)Mathf.Round(v.Y * BucketScale),
-            (int)Mathf.Round(v.Z * BucketScale)
+            (int)Mathf.Round(v.X * _bucketScale),
+            (int)Mathf.Round(v.Y * _bucketScale),
+            (int)Mathf.Round(v.Z * _bucketScale)
         );
     }
 

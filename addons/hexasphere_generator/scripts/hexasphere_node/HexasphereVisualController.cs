@@ -59,8 +59,6 @@ public partial class HexasphereVisualController : Node
         if (_isBorderVisible)
             _borderRenderer = new PlanetBorderRenderer(this);
 
-        CreateGlobalCollider();
-
         CallDeferred(MethodName.InitShaderMaterial);
     }
 
@@ -93,21 +91,27 @@ public partial class HexasphereVisualController : Node
         EmitSignal(SignalName.ShaderReady);
     }
 
-    virtual public void Draw(ICellData[] cellDatas, Color? selectedColor = null, int selectedIdx = -1, Color? hoverColor = null, int hoverIdx = -1)
+    virtual public void DrawColors(ICellData[] cellDatas)
     {
         if (_tileColorImage == null || cellDatas == null || cellDatas.Length == 0) return;
 
         int safeLength = Mathf.Min(cellDatas.Length, _tileCount);
+        var bytes = new byte[_texWidth * _texHeight * 4];
         for (int i = 0; i < safeLength; i++)
         {
             Color c = GetColor(cellDatas[i]);
-            int px = i % _texWidth;
-            int py = i / _texWidth;
-            _tileColorImage.SetPixel(px, py, c);
+            int offset = i * 4;
+            bytes[offset + 0] = (byte)(c.R * 255);
+            bytes[offset + 1] = (byte)(c.G * 255);
+            bytes[offset + 2] = (byte)(c.B * 255);
+            bytes[offset + 3] = (byte)(c.A * 255);
         }
+        var img = Image.CreateFromData(_texWidth, _texHeight, false, Image.Format.Rgba8, bytes);
+        _tileColorTexture.Update(img);
+    }
 
-        _tileColorTexture.Update(_tileColorImage);
-
+    virtual public void SetSelection(Color? selectedColor, int selectedIdx, Color? hoverColor, int hoverIdx)
+    {
         if (selectedColor != null)
         {
             _planetMaterial?.SetShaderParameter("selected_color", new Vector4(selectedColor.Value.R, selectedColor.Value.G, selectedColor.Value.B, selectedColor.Value.A));
@@ -123,23 +127,17 @@ public partial class HexasphereVisualController : Node
             _borderRenderer.UpdateBorders(selectedIdx);
     }
 
+    virtual public void Draw(ICellData[] cellDatas, Color? selectedColor = null, int selectedIdx = -1, Color? hoverColor = null, int hoverIdx = -1)
+    {
+        DrawColors(cellDatas);
+        SetSelection(selectedColor, selectedIdx, hoverColor, hoverIdx);
+    }
+
 
 
     virtual public void DisposeHexasphere()
     {
         Hexasphere?.Dispose();
         Hexasphere = null;
-    }
-
-    virtual protected void CreateGlobalCollider()
-    {
-        if (_planetMeshInstance?.Mesh == null) return;
-        var staticBody     = new StaticBody3D();
-        var collisionShape = new CollisionShape3D();
-        var concaveShape   = new ConcavePolygonShape3D();
-        concaveShape.Data = _planetMeshInstance.Mesh.GetFaces();
-        collisionShape.Shape = concaveShape;
-        staticBody.AddChild(collisionShape);
-        AddChild(staticBody);
     }
 }
