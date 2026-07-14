@@ -19,8 +19,9 @@ public partial class HexasphereVisualController : Node
     private Image          _tileColorImage;
     private int            _tileCount;
 
+    private Shader _colorsShader;
+    private Shader _bordersShader;
     private bool _isBorderVisible = true;
-    private float _roughness = 0.6f;
 
 
     virtual public Color GetColor(ICellData cellData)
@@ -39,13 +40,8 @@ public partial class HexasphereVisualController : Node
     }
 
     virtual public void SetBorderColor(Color color) => _borderRenderer?.SetBorderColor(color);
-    virtual public void SetRoughness(float value)
-    {
-        _roughness = value;
-        _planetMaterial?.SetShaderParameter("roughness", value);
-    }
 
-    virtual public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible)
+    virtual public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible, Shader colorsShader, Shader bordersShader)
     {
         _planetArrayMesh   = mesh;
         _tileCount         = Hexasphere.GetTileCount();
@@ -55,6 +51,9 @@ public partial class HexasphereVisualController : Node
         _planetMeshInstance.Mesh = _planetArrayMesh;
         _planetMeshInstance.Name = "PlanetMesh";
         AddChild(_planetMeshInstance);
+
+        _colorsShader = colorsShader;
+        _bordersShader = bordersShader;
 
         if (_isBorderVisible)
             _borderRenderer = new PlanetBorderRenderer(this);
@@ -73,20 +72,19 @@ public partial class HexasphereVisualController : Node
         _tileColorImage   = Image.CreateEmpty(_texWidth, _texHeight, false, Image.Format.Rgba8);
         _tileColorTexture = ImageTexture.CreateFromImage(_tileColorImage);
 
-        var shader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_colors.gdshader");
+        var shader = _colorsShader;
         _planetMaterial = new ShaderMaterial();
         _planetMaterial.Shader = shader;
         _planetMaterial.SetShaderParameter("tile_colors", _tileColorTexture);
         _planetMaterial.SetShaderParameter("tile_count",  _tileCount);
         _planetMaterial.SetShaderParameter("tex_width",   _texWidth);
-        _planetMaterial.SetShaderParameter("roughness",     _roughness);
         _planetMaterial.SetShaderParameter("selected_idx",  -1);
         _planetMaterial.SetShaderParameter("hover_idx",  -1);
 
         _planetMeshInstance.MaterialOverride = _planetMaterial;
 
         if (_isBorderVisible)
-            _borderRenderer.BuildStaticBorders(Hexasphere, _planetMaterial);
+            _borderRenderer.BuildStaticBorders(Hexasphere, _planetMaterial, _bordersShader);
 
         EmitSignal(SignalName.ShaderReady);
     }

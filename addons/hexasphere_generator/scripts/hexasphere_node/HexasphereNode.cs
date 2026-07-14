@@ -17,7 +17,7 @@ public partial class HexasphereNode : Node3D
 
     [ExportGroup("Visual")]
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
-    [Export(PropertyHint.Range, "0.0, 1.0")] public float Roughness = 0.6f;
+
 
 
     [Export] public bool IsClickEnabled = true;
@@ -33,7 +33,12 @@ public partial class HexasphereNode : Node3D
 
     [ExportGroup("use it if HexSize =1f and u need borders")]
     [Export] public bool IsBordering = true;
-    [Export] public Color BorderColor = Colors.White;
+    private Color _borderColor = Colors.White;
+    [Export] public Color BorderColor
+    {
+        get => _borderColor;
+        set { _borderColor = value; VisualController?.SetBorderColor(value); }
+    }
 
 
 
@@ -44,6 +49,10 @@ public partial class HexasphereNode : Node3D
 
 
 
+
+    [ExportGroup("Shaders")]
+    [Export] public Shader ColorsShader;
+    [Export] public Shader BordersShader;
 
     private HexasphereVisualController VisualController;
     private ICellData[] _cellDatas;
@@ -131,9 +140,8 @@ virtual protected void FinalizePlanet()
     var mesh = (ArrayMesh)result["mesh"];
 
     VisualController.SetNativeHexasphere(_pendingHexasphere);
-    VisualController.ApplyGenerated(mesh, IsBordering);
+    VisualController.ApplyGenerated(mesh, IsBordering, ColorsShader, BordersShader);
     VisualController.SetBorderColor(BorderColor);
-    VisualController.SetRoughness(Roughness);
     BuildSpatialIndex(_pendingCenters);
 
 

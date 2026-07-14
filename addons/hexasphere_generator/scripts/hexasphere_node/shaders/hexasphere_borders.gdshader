@@ -1,5 +1,6 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled;
+#include "res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/tile_uv.gdshaderinc"
 
 uniform sampler2D tile_colors;
 uniform int tile_count;
@@ -12,9 +13,8 @@ void vertex() {
     int idxB = int(round(UV2.y));
 
     // Use idxA for tile color lookup (same as before)
-    float u = (float(idxA % tex_width) + 0.5) / float(tex_width);
-    float v = (float(idxA / tex_width) + 0.5) / float((tile_count + tex_width - 1) / tex_width);
-    vec4 tileColor = texture(tile_colors, vec2(u, v));
+    vec2 uv = tile_uv(idxA, tex_width, tile_count);
+    vec4 tileColor = texture(tile_colors, uv);
 
     if (idxA == selected_idx || idxB == selected_idx) {
         COLOR = vec4(1.0, 1.0, 1.0, 1.0);

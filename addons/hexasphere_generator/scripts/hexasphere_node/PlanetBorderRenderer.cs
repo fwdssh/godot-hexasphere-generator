@@ -16,7 +16,7 @@ public class PlanetBorderRenderer
 
     public virtual void SetVisible(bool visible) => _bordersMeshInstance.Visible = visible;
 
-    public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial)
+    public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial, Shader borderShader)
     {
         var data = hexasphere.GetBorderData();
         var positions = (Vector3[])data["positions"];
@@ -66,7 +66,7 @@ public class PlanetBorderRenderer
         var mesh = new ArrayMesh();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
 
-        var shader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_borders.gdshader");
+        var shader = borderShader;
         _borderMaterial = new ShaderMaterial();
         _borderMaterial.Shader = shader;
 

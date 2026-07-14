@@ -19,6 +19,10 @@ public class NativeHexasphere : IDisposable
 
     public NativeHexasphere()
     {
+        if (!ClassDB.ClassExists("NativeHexasphere"))
+            throw new InvalidOperationException(
+                "NativeHexasphere GDExtension not found. Check that .gdextension is loaded and built for the current platform.");
+
         _native = ClassDB.Instantiate("NativeHexasphere").AsGodotObject();
     }
 
