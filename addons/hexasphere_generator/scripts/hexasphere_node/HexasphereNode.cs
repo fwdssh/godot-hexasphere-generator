@@ -1,4 +1,5 @@
 using Godot;
+using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 public partial class HexasphereNode : Node3D
@@ -91,7 +92,17 @@ public partial class HexasphereNode : Node3D
 
         // Create NativeHexasphere on main thread (Godot RefCounted)
         var hexasphere = new NativeHexasphere();
-        Task.Run(() => GenerateInBackground(hexasphere));
+        Task.Run(() =>
+        {
+            try
+            {
+                GenerateInBackground(hexasphere);
+            }
+            catch (System.Exception e)
+            {
+                GD.PrintErr($"[HexasphereNode] Generation error: {e}");
+            }
+        });
     }
 
     virtual protected void GenerateInBackground(NativeHexasphere hexasphere)
@@ -112,6 +123,7 @@ public partial class HexasphereNode : Node3D
 
 virtual protected void FinalizePlanet()
 {
+    if (!IsInsideTree()) return;
 
     _cellDatas = _pendingCellDatas;
 

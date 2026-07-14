@@ -24,26 +24,35 @@ public class PlanetBorderRenderer
 
         int tileCount = hexasphere.GetTileCount();
         var vertPositions = new List<Vector3>();
-        var uv2 = new List<Vector2>();
-        var seenMidpoints = new HashSet<Vector3>();
+        List<Vector2> uv2 = new List<Vector2>();
+        var edgeFirstOwner = new Dictionary<Vector3, int>();
+        var edgeVertexIndex = new Dictionary<Vector3, int>();
 
         int idx = 0;
         for (int i = 0; i < tileCount; i++)
         {
             int count = tileLineCounts[i];
-            var tileUV = new Vector2(i, 0f);
             for (int j = 0; j < count; j += 2)
             {
                 Vector3 p1 = positions[idx + j];
                 Vector3 p2 = positions[idx + j + 1];
                 Vector3 mid = (p1 + p2) * 0.5f;
                 var snappedMid = SnapToGrid(mid, 0.001f);
-                if (seenMidpoints.Add(snappedMid))
+                if (!edgeFirstOwner.ContainsKey(snappedMid))
                 {
+                    edgeFirstOwner[snappedMid] = i;
+                    edgeVertexIndex[snappedMid] = vertPositions.Count;
                     vertPositions.Add(p1 * 1.0001f);
                     vertPositions.Add(p2 * 1.0001f);
-                    uv2.Add(tileUV);
-                    uv2.Add(tileUV);
+                    uv2.Add(new Vector2(i, -1));
+                    uv2.Add(new Vector2(i, -1));
+                }
+                else
+                {
+                    int firstOwner = edgeFirstOwner[snappedMid];
+                    int vertIdx = edgeVertexIndex[snappedMid];
+                    uv2[vertIdx] = new Vector2(firstOwner, i);
+                    uv2[vertIdx + 1] = new Vector2(firstOwner, i);
                 }
             }
             idx += count;
@@ -74,7 +83,7 @@ public class PlanetBorderRenderer
         _bordersMeshInstance.MaterialOverride = _borderMaterial;
     }
 
-    public virtual void UpdateBorders(NativeHexasphere hexasphere, ICellData[] cellDatas, int selectedIdx = -1)
+    public virtual void UpdateBorders(int selectedIdx = -1)
     {
         _borderMaterial?.SetShaderParameter("selected_idx", selectedIdx);
     }

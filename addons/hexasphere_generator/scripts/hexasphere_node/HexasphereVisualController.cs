@@ -120,7 +120,7 @@ public partial class HexasphereVisualController : Node
         }
 
         if (_isBorderVisible)
-            _borderRenderer.UpdateBorders(Hexasphere, cellDatas, selectedIdx);
+            _borderRenderer.UpdateBorders(selectedIdx);
     }
 
 

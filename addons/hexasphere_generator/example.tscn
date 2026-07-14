@@ -15,5 +15,4 @@ script = ExtResource("2_76mee")
 script = ExtResource("2_imyun")
 PlanetRadius = 100.0
 SubDivision = 200
-IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
