@@ -2,8 +2,6 @@
 
 [ext_resource type="Script" uid="uid://chj4a2dkg6sph" path="res://addons/hexasphere_generator/scripts/example/Camera3d.cs" id="2_76mee"]
 [ext_resource type="Script" uid="uid://b426dtntimedh" path="res://addons/hexasphere_generator/scripts/hexasphere_node/HexasphereNode.cs" id="2_imyun"]
-[ext_resource type="Shader" uid="uid://c0nrcl4qovx6w" path="res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_colors.gdshader" id="3_183kr"]
-[ext_resource type="Shader" uid="uid://bdc3y28hnwy35" path="res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_borders.gdshader" id="4_fvoqi"]
 
 [node name="example" type="Node" unique_id=164599645]
 
@@ -13,11 +11,7 @@ script = ExtResource("2_76mee")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
 
-[node name="Hexasphere" type="Node3D" parent="." unique_id=1949153455]
+[node name="Hexasphere2" type="Node3D" parent="." unique_id=144807030]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 46.196053, 0, 0)
 script = ExtResource("2_imyun")
-PlanetRadius = 100.0
-SubDivision = 200
-IsBordering = false
-ColorsShader = ExtResource("3_183kr")
-BordersShader = ExtResource("4_fvoqi")
 metadata/_custom_type_script = "uid://b426dtntimedh"

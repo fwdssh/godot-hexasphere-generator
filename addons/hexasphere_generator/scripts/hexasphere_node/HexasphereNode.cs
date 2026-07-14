@@ -51,8 +51,8 @@ public partial class HexasphereNode : Node3D
 
 
     [ExportGroup("Shaders")]
-    [Export] public Shader ColorsShader;
-    [Export] public Shader BordersShader;
+    [Export] public Shader ColorsShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_colors.gdshader");
+    [Export] public Shader BordersShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_borders.gdshader");
 
     private HexasphereVisualController VisualController;
     private ICellData[] _cellDatas;

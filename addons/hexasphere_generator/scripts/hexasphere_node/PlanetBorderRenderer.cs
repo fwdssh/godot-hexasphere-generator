@@ -38,7 +38,7 @@ public class PlanetBorderRenderer
                 Vector3 p2 = positions[idx + j + 1];
                 Vector3 mid = (p1 + p2) * 0.5f;
                 var snappedMid = SnapToGrid(mid, 0.001f);
-                if (!edgeFirstOwner.ContainsKey(snappedMid))
+                if (!edgeFirstOwner.TryGetValue(snappedMid, out int firstOwner))
                 {
                     edgeFirstOwner[snappedMid] = i;
                     edgeVertexIndex[snappedMid] = vertPositions.Count;
@@ -49,7 +49,6 @@ public class PlanetBorderRenderer
                 }
                 else
                 {
-                    int firstOwner = edgeFirstOwner[snappedMid];
                     int vertIdx = edgeVertexIndex[snappedMid];
                     uv2[vertIdx] = new Vector2(firstOwner, i);
                     uv2[vertIdx + 1] = new Vector2(firstOwner, i);

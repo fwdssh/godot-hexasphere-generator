@@ -16,7 +16,9 @@ void vertex() {
     vec2 uv = tile_uv(idxA, tex_width, tile_count);
     vec4 tileColor = texture(tile_colors, uv);
 
-    if (idxA == selected_idx || idxB == selected_idx) {
+    bool isSelected = (idxA == selected_idx) || (idxB >= 0 && idxB == selected_idx);
+
+    if (isSelected) {
         COLOR = vec4(1.0, 1.0, 1.0, 1.0);
     } else {
         COLOR = border_color;
