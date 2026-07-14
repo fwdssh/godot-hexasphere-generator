@@ -6,5 +6,5 @@
 [node name="Hexasphere" type="Node3D" unique_id=8295240]
 script = ExtResource("1_dymy2")
 
-[node name="HexasphereVisual" type="Node" parent="." unique_id=2009227898]
+[node name="HexasphereVisual" type="Node3D" parent="." unique_id=2009227898]
 script = ExtResource("2_feqdc")

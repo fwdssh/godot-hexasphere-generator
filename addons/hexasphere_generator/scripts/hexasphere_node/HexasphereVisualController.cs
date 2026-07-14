@@ -1,6 +1,6 @@
 using Godot;
 
-public partial class HexasphereVisualController : Node
+public partial class HexasphereVisualController : Node3D
 {
 
 

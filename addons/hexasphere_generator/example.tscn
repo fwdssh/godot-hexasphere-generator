@@ -11,6 +11,12 @@ script = ExtResource("2_76mee")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
 
+[node name="Hexasphere" type="Node3D" parent="." unique_id=1949153455]
+script = ExtResource("2_imyun")
+SubDivision = 200
+IsBordering = false
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
 [node name="Hexasphere2" type="Node3D" parent="." unique_id=144807030]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 46.196053, 0, 0)
 script = ExtResource("2_imyun")

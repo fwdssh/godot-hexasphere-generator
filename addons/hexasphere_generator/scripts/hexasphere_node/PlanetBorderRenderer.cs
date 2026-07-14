@@ -7,7 +7,7 @@ public class PlanetBorderRenderer
     private ShaderMaterial _borderMaterial;
     private Color _borderColor;
 
-    public PlanetBorderRenderer(Node parent)
+    public PlanetBorderRenderer(Node3D parent)
     {
         _bordersMeshInstance      = new MeshInstance3D();
         _bordersMeshInstance.Name = "BordersMesh";
