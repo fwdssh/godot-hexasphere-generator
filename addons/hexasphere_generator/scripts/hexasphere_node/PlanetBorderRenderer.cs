@@ -14,9 +14,9 @@ public class PlanetBorderRenderer
         parent.AddChild(_bordersMeshInstance);
     }
 
-    public void SetVisible(bool visible) => _bordersMeshInstance.Visible = visible;
+    public virtual void SetVisible(bool visible) => _bordersMeshInstance.Visible = visible;
 
-    public void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial)
+    public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial)
     {
         var data = hexasphere.GetBorderData();
         var positions = (Vector3[])data["positions"];
@@ -74,12 +74,12 @@ public class PlanetBorderRenderer
         _bordersMeshInstance.MaterialOverride = _borderMaterial;
     }
 
-    public void UpdateBorders(NativeHexasphere hexasphere, ICellData[] cellDatas, int selectedIdx = -1)
+    public virtual void UpdateBorders(NativeHexasphere hexasphere, ICellData[] cellDatas, int selectedIdx = -1)
     {
         _borderMaterial?.SetShaderParameter("selected_idx", selectedIdx);
     }
 
-    public void SetBorderColor(Color color)
+    public virtual void SetBorderColor(Color color)
     {
         _borderColor = color;
         _borderMaterial?.SetShaderParameter("border_color", color);
