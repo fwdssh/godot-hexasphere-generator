@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using Godot.Hexasphere;
 public partial class HexasphereNode : Node3D
 {
+    private const bool DebugLogging = false;
+
     [Signal] public delegate void TileClickedEventHandler(int tileIndex, Vector3 worldPosition);
     [Signal] public delegate void TileHoveredEventHandler(int tileIndex);
     [Signal] public delegate void TileDeselectedEventHandler();
@@ -15,6 +17,7 @@ public partial class HexasphereNode : Node3D
     [ExportGroup("Geometry")]
     [Export] public float PlanetRadius = 20;
     [Export] public int SubDivision = 20;
+    [Export] public int GenerationSeed = -1;
 
     [ExportGroup("Visual")]
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
@@ -52,6 +55,7 @@ public partial class HexasphereNode : Node3D
 
     [ExportGroup("UV Projector")]
     [Export] public NodePath UvProjectorPath;
+    [Export] public NodePath Camera3DPath;
     private HexasphereProjectorController UvProjector;
     private Camera3D _camera3D;
 
@@ -78,7 +82,10 @@ public partial class HexasphereNode : Node3D
     virtual protected ICellData[] CreateCellData(int count)
     {
         var rng = new RandomNumberGenerator();
-        rng.Randomize();
+        if (GenerationSeed >= 0)
+            rng.Seed = (ulong)GenerationSeed;
+        else
+            rng.Randomize();
         var data = new HexCellData[count];
         for (int i = 0; i < data.Length; i++)
         {
@@ -102,23 +109,31 @@ public partial class HexasphereNode : Node3D
             AddChild(VisualController);
         }
 
-        if (UvProjectorPath != null)
+        if (!string.IsNullOrEmpty(UvProjectorPath))
         {
             var node = GetNodeOrNull(UvProjectorPath);
-            GD.Print($"[HexasphereNode] UvProjectorPath: {UvProjectorPath}, node found: {node != null}, node type: {node?.GetType().Name}");
+            if (DebugLogging) GD.Print($"[HexasphereNode] UvProjectorPath: {UvProjectorPath}, node found: {node != null}, node type: {node?.GetType().Name}");
             UvProjector = node as HexasphereProjectorController;
-            GD.Print($"[HexasphereNode] UvProjector cast result: {UvProjector != null}");
-            
+            if (DebugLogging) GD.Print($"[HexasphereNode] UvProjector cast result: {UvProjector != null}");
+
+            if (UvProjector != null)
+            {
+                UvProjector.ProjectionClosed += OnProjectionClosed;
+            }
+
             // Check CanvasLayer
             var canvasLayer = UvProjector?.GetParent<CanvasLayer>();
             if (canvasLayer != null)
             {
-                GD.Print($"[HexasphereNode] CanvasLayer found - Visible: {canvasLayer.Visible}, Layer: {canvasLayer.Layer}");
+                if (DebugLogging) GD.Print($"[HexasphereNode] CanvasLayer found - Visible: {canvasLayer.Visible}, Layer: {canvasLayer.Layer}");
             }
         }
 
         // Find Camera3D to disable it when UV mode is active
-        _camera3D = GetNodeOrNull<Camera3D>("../Camera3D");
+        if (!string.IsNullOrEmpty(Camera3DPath))
+            _camera3D = GetNodeOrNull<Camera3D>(Camera3DPath);
+        else
+            _camera3D = GetNodeOrNull<Camera3D>("../Camera3D"); // fallback
 
         // Create NativeHexasphere on main thread (Godot RefCounted)
         var hexasphere = new NativeHexasphere();
@@ -153,7 +168,12 @@ public partial class HexasphereNode : Node3D
 
 virtual protected void FinalizePlanet()
 {
-    if (!IsInsideTree()) return;
+    if (!IsInsideTree())
+    {
+        _pendingHexasphere?.Dispose();
+        _pendingHexasphere = null;
+        return;
+    }
 
     _cellDatas = _pendingCellDatas;
     _hexasphere = _pendingHexasphere;
@@ -162,6 +182,7 @@ virtual protected void FinalizePlanet()
     var mesh = (ArrayMesh)result["mesh"];
 
     VisualController.SetNativeHexasphere(_pendingHexasphere);
+    VisualController.ShaderReady += OnShaderReady;
     VisualController.ApplyGenerated(mesh, IsBordering, ColorsShader, BordersShader);
     VisualController.SetBorderColor(BorderColor);
     BuildSpatialIndex(_pendingCenters);
@@ -169,8 +190,6 @@ virtual protected void FinalizePlanet()
     _pendingHexasphere = null;
     _pendingCenters    = null;
     _pendingCellDatas  = null;
-
-    VisualController.ShaderReady += OnShaderReady;
 }
 virtual protected void OnShaderReady()
 {
@@ -183,10 +202,63 @@ virtual protected void OnShaderReady()
         _tileColors = new Color[_cellDatas.Length];
         for (int i = 0; i < _cellDatas.Length; i++)
             _tileColors[i] = VisualController.GetColor(_cellDatas[i]);
-        GD.Print($"[HexasphereNode] _tileColors initialized: {_tileColors.Length} colors");
+        if (DebugLogging) GD.Print($"[HexasphereNode] _tileColors initialized: {_tileColors.Length} colors");
     }
 
     _planetReady = true;
+}
+
+protected virtual void OpenUvProjector()
+{
+    if (UvProjector == null || !_planetReady) return;
+
+    if (DebugLogging) GD.Print("[HexasphereNode] Opening UV projector...");
+
+    // Check CanvasLayer visibility
+    var canvasLayer = UvProjector.GetParent<CanvasLayer>();
+    if (canvasLayer != null)
+    {
+        if (DebugLogging) GD.Print($"[HexasphereNode] CanvasLayer found - Visible: {canvasLayer.Visible}, Layer: {canvasLayer.Layer}, Offset: {canvasLayer.Offset}");
+    }
+
+    UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
+    UvProjector.Visible = true;
+    UvProjector.ProcessMode = ProcessModeEnum.Inherit;
+
+    // Disable Camera3D to prevent it from intercepting input
+    if (_camera3D != null)
+    {
+        _camera3D.ProcessMode = ProcessModeEnum.Disabled;
+        _camera3D.Current = false;
+    }
+
+    if (DebugLogging) GD.Print($"[HexasphereNode] UvProjector - Visible: {UvProjector.Visible}, ProcessMode: {UvProjector.ProcessMode}, Position: {UvProjector.Position}, GlobalPosition: {UvProjector.GlobalPosition}");
+
+    // Make UV camera current
+    var camera = UvProjector.GetNodeOrNull<UvCamera2D>("Camera2D");
+    if (camera != null)
+    {
+        camera.MakeCurrent();
+        if (DebugLogging) GD.Print($"[HexasphereNode] UV Camera2D made current - Position: {camera.Position}, Zoom: {camera.Zoom}, GlobalPosition: {camera.GlobalPosition}");
+    }
+
+    // Check MeshInstance2D
+    if (UvProjector.MeshInstance2D != null)
+    {
+        if (DebugLogging) GD.Print($"[HexasphereNode] MeshInstance2D - Visible: {UvProjector.MeshInstance2D.Visible}, GlobalPosition: {UvProjector.MeshInstance2D.GlobalPosition}, Mesh: {UvProjector.MeshInstance2D.Mesh != null}");
+    }
+
+    if (DebugLogging) GD.Print("[HexasphereNode] UV projector opened");
+}
+
+private void OnProjectionClosed()
+{
+    // Restore 3D camera
+    if (_camera3D != null)
+    {
+        _camera3D.ProcessMode = ProcessModeEnum.Inherit;
+        _camera3D.Current = true;
+    }
 }
 
     private bool TryRaycastToTile(out Vector3 hitPosition, out int tileIndex)
@@ -198,8 +270,9 @@ virtual protected void OnShaderReady()
         if (camera == null) return false;
 
         var mousePos = GetViewport().GetMousePosition();
-        Vector3 origin = ToLocal(camera.ProjectRayOrigin(mousePos));
-        Vector3 dir    = (ToLocal(camera.ProjectRayOrigin(mousePos) + camera.ProjectRayNormal(mousePos)) - origin).Normalized();
+        Vector3 rayOriginWorld = camera.ProjectRayOrigin(mousePos);
+        Vector3 origin = ToLocal(rayOriginWorld);
+        Vector3 dir    = (ToLocal(rayOriginWorld + camera.ProjectRayNormal(mousePos)) - origin).Normalized();
 
         if (!RaySphereIntersect(origin, dir, PlanetRadius, out hitPosition))
             return false;
@@ -227,6 +300,7 @@ virtual protected void OnShaderReady()
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        // Left click — select/deselect tile
         if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } && IsClickEnabled)
         {
             if (TryRaycastToTile(out var hitPos, out int idx) && idx >= 0)
@@ -247,49 +321,18 @@ virtual protected void OnShaderReady()
             }
         }
 
-        if (@event is InputEventKey { Pressed: true, Keycode: Key.Key1 } && IsClickEnabled)
+        // Middle click — open UV projection (only if mouse over this sphere)
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Middle, Pressed: true } && IsClickEnabled)
         {
-            GD.Print($"[HexasphereNode] Key 1 pressed. UvProjector: {UvProjector != null}, _hexasphere: {_hexasphere != null}, _tileColors: {_tileColors != null}");
-            if (UvProjector != null && _hexasphere != null && _tileColors != null)
+            if (TryRaycastToTile(out _, out int midIdx) && midIdx >= 0)
             {
-                GD.Print("[HexasphereNode] Opening UV projector...");
-                
-                // Check CanvasLayer visibility
-                var canvasLayer = UvProjector.GetParent<CanvasLayer>();
-                if (canvasLayer != null)
-                {
-                    GD.Print($"[HexasphereNode] CanvasLayer found - Visible: {canvasLayer.Visible}, Layer: {canvasLayer.Layer}, Offset: {canvasLayer.Offset}");
-                }
-                
-                UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
-                UvProjector.Visible = true;
-                UvProjector.ProcessMode = ProcessModeEnum.Inherit;
-                
-                // Disable Camera3D to prevent it from intercepting input
-                if (_camera3D != null)
-                {
-                    _camera3D.ProcessMode = ProcessModeEnum.Disabled;
-                    _camera3D.Current = false;
-                }
-                
-                GD.Print($"[HexasphereNode] UvProjector - Visible: {UvProjector.Visible}, ProcessMode: {UvProjector.ProcessMode}, Position: {UvProjector.Position}, GlobalPosition: {UvProjector.GlobalPosition}");
-                
-                // Make UV camera current
-                var camera = UvProjector.GetNodeOrNull<UvCamera2D>("Camera2D");
-                if (camera != null)
-                {
-                    camera.MakeCurrent();
-                    GD.Print($"[HexasphereNode] UV Camera2D made current - Position: {camera.Position}, Zoom: {camera.Zoom}, GlobalPosition: {camera.GlobalPosition}");
-                }
-                
-                // Check MeshInstance2D
-                if (UvProjector.MeshInstance2D != null)
-                {
-                    GD.Print($"[HexasphereNode] MeshInstance2D - Visible: {UvProjector.MeshInstance2D.Visible}, GlobalPosition: {UvProjector.MeshInstance2D.GlobalPosition}, Mesh: {UvProjector.MeshInstance2D.Mesh != null}");
-                }
-                
-                GD.Print("[HexasphereNode] UV projector opened");
+                if (_planetReady && UvProjector != null) OpenUvProjector();
             }
+        }
+
+        if (@event is InputEventKey { Pressed: true } && Input.IsActionJustPressed("ui_toggle_uv_map") && IsClickEnabled)
+        {
+            OpenUvProjector();
         }
 
         if (@event is InputEventMouseMotion && IsHoverEnabled)
@@ -313,6 +356,10 @@ virtual protected void OnShaderReady()
 
     public override void _ExitTree()
     {
+        if (UvProjector != null)
+        {
+            UvProjector.ProjectionClosed -= OnProjectionClosed;
+        }
         _hexasphere?.Dispose();
         _hexasphere = null;
     }
@@ -325,6 +372,7 @@ virtual protected void OnShaderReady()
             _tileDirs[i] = centers[i].Normalized();
         }
 
+        // 0.35f empirically tuned for SubDivision=20; scales with sqrt(tile count) for roughly uniform bucket density
         _bucketScale = Mathf.Sqrt(centers.Length) * 0.35f;
 
         // Build spatial hash buckets

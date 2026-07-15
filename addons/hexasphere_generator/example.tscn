@@ -14,13 +14,17 @@ script = ExtResource("2_76mee")
 
 [node name="Hexasphere2" type="Node3D" parent="." unique_id=798022267]
 script = ExtResource("2_imyun")
+UvProjectorPath = NodePath("../CanvasLayer/HexasphereUvProjector")
+Camera3DPath = NodePath("../Camera3D")
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Hexasphere" type="Node3D" parent="." unique_id=1949153455]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 81.067795, 0, 0)
 script = ExtResource("2_imyun")
-SubDivision = 24
+SubDivision = 1
 IsBordering = false
 UvProjectorPath = NodePath("../CanvasLayer/HexasphereUvProjector")
+Camera3DPath = NodePath("../Camera3D")
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=337140595]
