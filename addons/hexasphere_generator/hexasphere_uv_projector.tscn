@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://c2h6l5gv85ktv"]
+
+[ext_resource type="Script" uid="uid://c5uqdwxgpsnjo" path="res://addons/hexasphere_generator/scripts/hexasphere_uv_projector/HexasphereProjectorController.cs" id="1_el1cy"]
+[ext_resource type="Script" uid="uid://caxwmjpaenv01" path="res://addons/hexasphere_generator/scripts/hexasphere_uv_projector/UvCamera2D.cs" id="2_6xkgn"]
+
+[node name="HexasphereUvProjector" type="Node2D" unique_id=904204215]
+visible = false
+script = ExtResource("1_el1cy")
+MeshInstance2DPath = NodePath("MeshInstance2D")
+OverlayMeshInstance2DPath = NodePath("OverlayMeshInstance2D")
+
+[node name="MeshInstance2D" type="MeshInstance2D" parent="." unique_id=874300943]
+
+[node name="OverlayMeshInstance2D" type="MeshInstance2D" parent="." unique_id=1652012965]
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1608389104]
+script = ExtResource("2_6xkgn")
+
