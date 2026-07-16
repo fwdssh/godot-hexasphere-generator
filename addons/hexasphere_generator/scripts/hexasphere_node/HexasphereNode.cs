@@ -295,10 +295,13 @@ protected virtual void OpenUvProjector()
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        // Global key toggle — always processed regardless of cursor position
+        // Global key toggle — requires cursor over sphere
         if (@event is InputEventKey { Pressed: true } && Input.IsActionJustPressed("ui_toggle_uv_map") && IsClickEnabled)
         {
-            OpenUvProjector();
+            if (TryRaycastToTile(out _, out int idx) && idx >= 0)
+            {
+                if (_planetReady && UvProjector != null) OpenUvProjector();
+            }
             return;
         }
 
@@ -345,16 +348,6 @@ protected virtual void OpenUvProjector()
                 VisualController.SetSelection(
                     IsClickVisualEnabled ? ClickColor : null, -1,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-            }
-            GetViewport().SetInputAsHandled();
-        }
-
-        // Middle click — open UV projection (only if mouse over this sphere)
-        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Middle, Pressed: true } && IsClickEnabled)
-        {
-            if (TryRaycastToTile(out _, out int midIdx) && midIdx >= 0)
-            {
-                if (_planetReady && UvProjector != null) OpenUvProjector();
             }
             GetViewport().SetInputAsHandled();
         }
