@@ -101,6 +101,7 @@ public partial class HexasphereNode : Node3D
 
     public override void _Ready()
     {
+        HexasphereInputRouter.Register(this);
         VisualController = GetNodeOrNull<HexasphereVisualController>("HexasphereVisual");
         if (VisualController == null)
         {
@@ -146,6 +147,7 @@ public partial class HexasphereNode : Node3D
             catch (System.Exception e)
             {
                 GD.PrintErr($"[HexasphereNode] Generation error: {e}");
+                hexasphere.Dispose();
             }
         });
     }
@@ -225,12 +227,10 @@ protected virtual void OpenUvProjector()
     UvProjector.Visible = true;
     UvProjector.ProcessMode = ProcessModeEnum.Inherit;
 
-    // Disable Camera3D to prevent it from intercepting input
-    if (_camera3D != null)
-    {
-        _camera3D.ProcessMode = ProcessModeEnum.Disabled;
-        _camera3D.Current = false;
-    }
+    // Request UV projection through router (ensures single active)
+    HexasphereInputRouter.RequestUvProjection(this);
+    // Disable camera through router (ensures no race)
+    HexasphereInputRouter.EnterUvMode(_camera3D);
 
     if (DebugLogging) GD.Print($"[HexasphereNode] UvProjector - Visible: {UvProjector.Visible}, ProcessMode: {UvProjector.ProcessMode}, Position: {UvProjector.Position}, GlobalPosition: {UvProjector.GlobalPosition}");
 
@@ -251,15 +251,11 @@ protected virtual void OpenUvProjector()
     if (DebugLogging) GD.Print("[HexasphereNode] UV projector opened");
 }
 
-private void OnProjectionClosed()
-{
-    // Restore 3D camera
-    if (_camera3D != null)
+    private void OnProjectionClosed()
     {
-        _camera3D.ProcessMode = ProcessModeEnum.Inherit;
-        _camera3D.Current = true;
+        HexasphereInputRouter.ExitUvMode();
+        HexasphereInputRouter.OnUvProjectionClosed(this);
     }
-}
 
     private bool TryRaycastToTile(out Vector3 hitPosition, out int tileIndex)
     {
@@ -300,6 +296,35 @@ private void OnProjectionClosed()
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        // Global key toggle — always processed regardless of cursor position
+        if (@event is InputEventKey { Pressed: true } && Input.IsActionJustPressed("ui_toggle_uv_map") && IsClickEnabled)
+        {
+            OpenUvProjector();
+            return;
+        }
+
+        // For mouse events, use router to determine which sphere wins
+        if (@event is InputEventMouse)
+        {
+            var viewport = GetViewport();
+            Vector2 mousePos = viewport.GetMousePosition();
+
+            var winner = HexasphereInputRouter.FindSphereUnderCursor(@event, mousePos, GetViewport(), out _);
+            if (winner != this)
+            {
+                // We are not the winner — clear hover if we had one
+                if (_hoveredTileIndex != -1)
+                {
+                    _hoveredTileIndex = -1;
+                    EmitSignal(SignalName.TileHovered, -1);
+                    VisualController.SetSelection(
+                        IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+                        IsHoverVisualEnabled ? HoverColor : null, -1);
+                }
+                return;
+            }
+        }
+
         // Left click — select/deselect tile
         if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } && IsClickEnabled)
         {
@@ -310,6 +335,9 @@ private void OnProjectionClosed()
                 VisualController.SetSelection(
                     IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+                
+                // Clear selection from all other spheres
+                HexasphereInputRouter.NotifySelectionChanged(this);
             }
             else
             {
@@ -319,6 +347,7 @@ private void OnProjectionClosed()
                     IsClickVisualEnabled ? ClickColor : null, -1,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
+            GetViewport().SetInputAsHandled();
         }
 
         // Middle click — open UV projection (only if mouse over this sphere)
@@ -328,11 +357,7 @@ private void OnProjectionClosed()
             {
                 if (_planetReady && UvProjector != null) OpenUvProjector();
             }
-        }
-
-        if (@event is InputEventKey { Pressed: true } && Input.IsActionJustPressed("ui_toggle_uv_map") && IsClickEnabled)
-        {
-            OpenUvProjector();
+            GetViewport().SetInputAsHandled();
         }
 
         if (@event is InputEventMouseMotion && IsHoverEnabled)
@@ -351,11 +376,11 @@ private void OnProjectionClosed()
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
         }
-
     }
 
     public override void _ExitTree()
     {
+        HexasphereInputRouter.Unregister(this);
         if (UvProjector != null)
         {
             UvProjector.ProjectionClosed -= OnProjectionClosed;
@@ -433,6 +458,81 @@ private void OnProjectionClosed()
         }
 
         return bestIndex;
+    }
+
+    /// <summary>
+    /// Try to get the ray-sphere intersection distance in world space for input arbitration.
+    /// Returns true if the ray from camera through screenPos intersects this sphere.
+    /// Outputs worldDist = world-space distance from camera to intersection point.
+    /// This is scale-invariant and correct for comparing spheres with different transforms.
+    /// </summary>
+    public bool TryGetRayIntersectionWorldDistance(Vector2 screenPos, Camera3D camera, out float worldDist)
+    {
+        worldDist = float.MaxValue;
+        if (camera == null) return false;
+        
+        Vector3 rayOrigin = camera.ProjectRayOrigin(screenPos);
+        Vector3 rayDir = camera.ProjectRayNormal(screenPos);
+        
+        // Convert to local space for intersection test
+        Vector3 origin = ToLocal(rayOrigin);
+        Vector3 dir = (ToLocal(rayOrigin + rayDir) - origin).Normalized();
+        
+        // Ray-sphere intersection in local space
+        float b = origin.Dot(dir);
+        float c = origin.Dot(origin) - PlanetRadius * PlanetRadius;
+        float disc = b * b - c;
+        
+        // Epsilon for floating-point stability at grazing angles
+        const float epsilon = 1e-6f;
+        if (disc < -epsilon) return false;
+        
+        // Clamp to zero for near-tangent rays
+        if (disc < 0f) disc = 0f;
+        
+        float sq = Mathf.Sqrt(disc);
+        float t1 = -b - sq;
+        float t2 = -b + sq;
+        float t = t1 >= 0f ? t1 : t2;
+        
+        if (t < 0f) return false;
+        
+        // Compute hit point in local space, convert to world, measure distance from camera
+        Vector3 hitLocal = origin + dir * t;
+        Vector3 hitWorld = ToGlobal(hitLocal);
+        worldDist = camera.GlobalPosition.DistanceTo(hitWorld);
+        
+        return true;
+    }
+
+    /// <summary>
+    /// Clear the current tile selection on this sphere.
+    /// Called by HexasphereInputRouter when another sphere is selected.
+    /// </summary>
+    public void ClearSelection()
+    {
+        if (_selectedTileIndex != -1)
+        {
+            _selectedTileIndex = -1;
+            EmitSignal(SignalName.TileDeselected);
+            VisualController.SetSelection(
+                IsClickVisualEnabled ? ClickColor : null, -1,
+                IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+        }
+    }
+
+    /// <summary>
+    /// Called by HexasphereInputRouter to close UV projection externally.
+    /// </summary>
+    public void CloseUvProjectorFromRouter()
+    {
+        if (UvProjector != null && UvProjector.Visible)
+        {
+            UvProjector.Visible = false;
+            UvProjector.ProcessMode = ProcessModeEnum.Disabled;
+            UvProjector.EmitSignal(HexasphereProjectorController.SignalName.ProjectionClosed);
+            OnProjectionClosed();
+        }
     }
 
 

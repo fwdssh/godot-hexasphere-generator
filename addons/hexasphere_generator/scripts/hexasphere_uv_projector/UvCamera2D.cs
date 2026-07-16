@@ -9,8 +9,8 @@ public partial class UvCamera2D : Camera2D
 
     private bool _isDragging = false;
     private HexasphereProjectorController _projector;
-
-    [Export] public Vector2 PanLimits = new Vector2(2000, 1200);
+    private Vector2 _panLimits = new Vector2(2000, 1200);
+    private Vector2 _panCenter = Vector2.Zero;
 
     public override void _Ready()
     {
@@ -53,10 +53,16 @@ public partial class UvCamera2D : Camera2D
         {
             Position -= mouseMotion.Relative / Zoom;
             Position = new Vector2(
-                Mathf.Clamp(Position.X, -PanLimits.X, PanLimits.X),
-                Mathf.Clamp(Position.Y, -PanLimits.Y, PanLimits.Y)
+                Mathf.Clamp(Position.X, _panCenter.X - _panLimits.X, _panCenter.X + _panLimits.X),
+                Mathf.Clamp(Position.Y, _panCenter.Y - _panLimits.Y, _panCenter.Y + _panLimits.Y)
             );
             GetViewport().SetInputAsHandled();
         }
+    }
+
+    public void SetPanLimits(Vector2 mapSize)
+    {
+        _panCenter = mapSize * 0.5f;
+        _panLimits = mapSize * 0.6f;
     }
 }

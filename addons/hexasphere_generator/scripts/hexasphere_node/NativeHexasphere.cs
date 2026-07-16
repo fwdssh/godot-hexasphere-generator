@@ -1,11 +1,13 @@
 using Godot;
 using Godot.Collections;
 using System;
+using System.Threading;
 
 public class NativeHexasphere : IDisposable
 {
     private GodotObject _native;
     private bool _disposed;
+    private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
     private static readonly StringName MethodGenerate = "generate";
     private static readonly StringName MethodGetTileCount = "get_tile_count";
@@ -37,46 +39,118 @@ public class NativeHexasphere : IDisposable
 
     public void Generate(float radius, int divisions, float hexSize)
     {
-        _native.Call(MethodGenerate, radius, divisions, hexSize);
+        _semaphore.Wait();
+        try
+        {
+            _native.Call(MethodGenerate, radius, divisions, hexSize);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public int GetTileCount()
     {
-        return (int)_native.Call(MethodGetTileCount);
+        _semaphore.Wait();
+        try
+        {
+            return (int)_native.Call(MethodGetTileCount);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public Vector3 GetTileCenter(int tileIdx)
     {
-        return (Vector3)_native.Call(MethodGetTileCenter, tileIdx);
+        _semaphore.Wait();
+        try
+        {
+            return (Vector3)_native.Call(MethodGetTileCenter, tileIdx);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public Vector3[] GetTilePoints(int tileIdx)
     {
-        return (Vector3[])_native.Call(MethodGetTilePoints, tileIdx);
+        _semaphore.Wait();
+        try
+        {
+            return (Vector3[])_native.Call(MethodGetTilePoints, tileIdx);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public int[] GetTileFaces(int tileIdx)
     {
-        return (int[])_native.Call(MethodGetTileFaces, tileIdx);
+        _semaphore.Wait();
+        try
+        {
+            return (int[])_native.Call(MethodGetTileFaces, tileIdx);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public Dictionary GetBuildData()
     {
-        return (Dictionary)_native.Call(MethodGetBuildData);
+        _semaphore.Wait();
+        try
+        {
+            return (Dictionary)_native.Call(MethodGetBuildData);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public Dictionary GetBorderData()
     {
-        return (Dictionary)_native.Call(MethodGetBorderData);
+        _semaphore.Wait();
+        try
+        {
+            return (Dictionary)_native.Call(MethodGetBorderData);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public Dictionary BuildMesh()
     {
-        return (Dictionary)_native.Call(MethodBuildMesh);
+        _semaphore.Wait();
+        try
+        {
+            return (Dictionary)_native.Call(MethodBuildMesh);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public Vector3[] GetAllTileCenters()
     {
-        return (Vector3[])_native.Call(MethodGetAllTileCenters);
+        _semaphore.Wait();
+        try
+        {
+            return (Vector3[])_native.Call(MethodGetAllTileCenters);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 }

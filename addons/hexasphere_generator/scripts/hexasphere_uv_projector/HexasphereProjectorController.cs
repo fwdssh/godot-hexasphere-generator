@@ -20,6 +20,11 @@ public partial class HexasphereProjectorController : Node2D
     private Color[] _colors;
     private Vector2 _lastMapSize;
     private int _selectedTile = -1;
+    private UvCamera2D _camera2D;
+    private bool _meshDirty = true;
+    private NativeHexasphere _cachedHexasphere;
+    private Color[] _cachedColors;
+    private Vector2 _cachedMapSize;
     private const bool DebugLogging = false;
 
     public override void _Ready()
@@ -31,6 +36,8 @@ public partial class HexasphereProjectorController : Node2D
         
         if (OverlayMeshInstance2DPath != null)
             OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>(OverlayMeshInstance2DPath);
+        
+        _camera2D = GetNodeOrNull<UvCamera2D>("Camera2D");
         
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] _Ready - MeshInstance2D: {MeshInstance2D != null}, OverlayMeshInstance2D: {OverlayMeshInstance2D != null}");
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] _Ready - Self Position: {Position}, GlobalPosition: {GlobalPosition}");
@@ -44,7 +51,7 @@ public partial class HexasphereProjectorController : Node2D
     {
         if (what == NotificationVisibilityChanged && Visible)
         {
-            var camera = GetNodeOrNull<UvCamera2D>("Camera2D");
+            var camera = _camera2D;
             if (camera != null)
             {
                 camera.MakeCurrent();
@@ -60,7 +67,7 @@ public partial class HexasphereProjectorController : Node2D
     }
     private List<HitTri> _hitTris = new List<HitTri>();
     private Dictionary<(int, int), List<int>> _spatialGrid = new();
-    private const float CellSize = 64f;
+    private float _cellSize = 64f;
 
     public void BuildMap2D(NativeHexasphere hexasphere, Color[] colors, Vector2 mapSize)
     {
@@ -79,30 +86,44 @@ public partial class HexasphereProjectorController : Node2D
             throw new System.ArgumentException(
                 $"colors.Length ({colors.Length}) < tileCount ({tileCount})");
 
-        if (MeshInstance2D.Mesh is ArrayMesh old)
-            old.Dispose();
+        bool needsRebuild = _meshDirty
+            || _cachedHexasphere != hexasphere
+            || _cachedColors != colors
+            || _cachedMapSize != mapSize;
 
-        _hexasphere = hexasphere;
-        _colors = colors;
-        _lastMapSize = mapSize;
-        _selectedTile = -1;
+        _cachedHexasphere = hexasphere;
+        _cachedColors = colors;
+        _cachedMapSize = mapSize;
 
-        BuildMesh(colors, mapSize);
-        BuildSpatialGrid();
-
-        if (OverlayMeshInstance2D != null)
+        if (needsRebuild)
         {
-            if (OverlayMeshInstance2D.Mesh is ArrayMesh oldOverlayMesh)
-                oldOverlayMesh.Dispose();
-            OverlayMeshInstance2D.Mesh = null;
+            if (MeshInstance2D.Mesh is ArrayMesh old)
+                old.Dispose();
+
+            _hexasphere = hexasphere;
+            _colors = colors;
+            _lastMapSize = mapSize;
+            _selectedTile = -1;
+
+            BuildMesh(colors, mapSize);
+            BuildSpatialGrid();
+            _meshDirty = false;
+
+            if (OverlayMeshInstance2D != null)
+            {
+                if (OverlayMeshInstance2D.Mesh is ArrayMesh oldOverlayMesh)
+                    oldOverlayMesh.Dispose();
+                OverlayMeshInstance2D.Mesh = null;
+            }
         }
         
         // Center camera on the map
-        var camera = GetNodeOrNull<UvCamera2D>("Camera2D");
+        var camera = _camera2D;
         if (camera != null)
         {
             camera.Position = new Vector2(mapSize.X / 2f, mapSize.Y / 2f);
             camera.TargetZoom = 0.5f; // Start zoomed out to see the whole map
+            camera.SetPanLimits(mapSize);
             if (DebugLogging) GD.Print($"[HexasphereProjectorController] Camera centered at {camera.Position}, TargetZoom: {camera.TargetZoom}");
         }
         
@@ -126,14 +147,23 @@ public partial class HexasphereProjectorController : Node2D
 
             Vector2[] uvs = ComputeTileUvs(t);
 
-            if (HasPolarStretch(uvs)) continue;
+            // Clamp UVs to valid range and render instead of discarding polar/seam tiles
+            bool clamped = false;
+            for (int ci = 0; ci < uvs.Length; ci++)
+            {
+                float origU = uvs[ci].X;
+                float clampedU = Mathf.Clamp(uvs[ci].X, 0f, 1f);
+                float clampedV = Mathf.Clamp(uvs[ci].Y, 0f, 1f);
+                if (Mathf.Abs(clampedU - origU) > 0.001f) clamped = true;
+                uvs[ci] = new Vector2(clampedU, clampedV);
+            }
 
             Color color = colors != null ? colors[t] : Colors.White;
 
+            var a = UvToScreen(uvs[0], mapSize);
             for (int i = 0; i < n; i++)
             {
                 int next = (i + 1) % n;
-                var a = UvToScreen(uvs[0], mapSize);
                 var b = UvToScreen(uvs[i + 1], mapSize);
                 var c = UvToScreen(uvs[next + 1], mapSize);
 
@@ -162,17 +192,6 @@ public partial class HexasphereProjectorController : Node2D
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] BuildMesh completed - Mesh created: {MeshInstance2D.Mesh != null}, Vertices: {_hitTris.Count * 3}");
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Visible: {MeshInstance2D.Visible}, GlobalPosition: {MeshInstance2D.GlobalPosition}, Position: {MeshInstance2D.Position}");
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Material: {MeshInstance2D.Material != null}, ZIndex: {MeshInstance2D.ZIndex}");
-    }
-
-    private bool HasPolarStretch(Vector2[] uvs)
-    {
-        float minU = float.MaxValue, maxU = float.MinValue;
-        for (int i = 0; i < uvs.Length; i++)
-        {
-            if (uvs[i].X < minU) minU = uvs[i].X;
-            if (uvs[i].X > maxU) maxU = uvs[i].X;
-        }
-        return (maxU - minU) > 0.5f;
     }
 
     private Vector2[] ComputeTileUvs(int tileIndex)
@@ -257,6 +276,10 @@ public partial class HexasphereProjectorController : Node2D
     private void BuildSpatialGrid()
     {
         _spatialGrid.Clear();
+        
+        // Dynamic cell size: target ~64 cells across map width, minimum 16
+        _cellSize = Mathf.Max(16f, _lastMapSize.X / 64f);
+        
         for (int i = 0; i < _hitTris.Count; i++)
         {
             var tri = _hitTris[i];
@@ -265,10 +288,10 @@ public partial class HexasphereProjectorController : Node2D
             float maxX = Mathf.Max(tri.A.X, Mathf.Max(tri.B.X, tri.C.X));
             float maxY = Mathf.Max(tri.A.Y, Mathf.Max(tri.B.Y, tri.C.Y));
 
-            int x0 = (int)(minX / CellSize);
-            int y0 = (int)(minY / CellSize);
-            int x1 = (int)(maxX / CellSize);
-            int y1 = (int)(maxY / CellSize);
+            int x0 = (int)(minX / _cellSize);
+            int y0 = (int)(minY / _cellSize);
+            int x1 = (int)(maxX / _cellSize);
+            int y1 = (int)(maxY / _cellSize);
 
             for (int gx = x0; gx <= x1; gx++)
             for (int gy = y0; gy <= y1; gy++)
@@ -283,8 +306,8 @@ public partial class HexasphereProjectorController : Node2D
 
     private int HitTest(Vector2 pos)
     {
-        int gx = (int)(pos.X / CellSize);
-        int gy = (int)(pos.Y / CellSize);
+        int gx = (int)(pos.X / _cellSize);
+        int gy = (int)(pos.Y / _cellSize);
 
         if (!_spatialGrid.TryGetValue((gx, gy), out var candidates))
             return -1;
@@ -317,10 +340,10 @@ public partial class HexasphereProjectorController : Node2D
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
 
+        var a = UvToScreen(uvs[0], _lastMapSize);
         for (int i = 0; i < n; i++)
         {
             int next = (i + 1) % n;
-            var a = UvToScreen(uvs[0], _lastMapSize);
             var b = UvToScreen(uvs[i + 1], _lastMapSize);
             var c = UvToScreen(uvs[next + 1], _lastMapSize);
 
@@ -348,15 +371,9 @@ public partial class HexasphereProjectorController : Node2D
 
             EmitSignal(SignalName.ProjectionClosed);
 
-            // Keep the existing Camera3D restore logic as fallback
-            Camera3D camera3D = null;
-            if (!string.IsNullOrEmpty(Camera3DPath))
-                camera3D = GetNodeOrNull<Camera3D>(Camera3DPath);
-            if (camera3D != null)
-            {
-                camera3D.ProcessMode = ProcessModeEnum.Inherit;
-                camera3D.Current = true;
-            }
+            // Restore camera through router (ensures no race with other spheres)
+            HexasphereInputRouter.ExitUvMode();
+            HexasphereInputRouter.OnUvProjectionClosed(null);
 
             GetViewport().SetInputAsHandled();
             return;
@@ -402,4 +419,6 @@ public partial class HexasphereProjectorController : Node2D
         float v = (dot00 * dot12 - dot01 * dot02) * inv;
         return u >= 0f && v >= 0f && u + v < 1f;
     }
+
+    public void MarkDirty() => _meshDirty = true;
 }

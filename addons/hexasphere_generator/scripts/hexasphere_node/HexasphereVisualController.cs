@@ -22,6 +22,7 @@ public partial class HexasphereVisualController : Node3D
     private Shader _colorsShader;
     private Shader _bordersShader;
     private bool _isBorderVisible = true;
+    private byte[] _colorBuffer;
 
 
     virtual public Color GetColor(ICellData cellData)
@@ -94,17 +95,19 @@ public partial class HexasphereVisualController : Node3D
         if (_tileColorImage == null || cellDatas == null || cellDatas.Length == 0) return;
 
         int safeLength = Mathf.Min(cellDatas.Length, _tileCount);
-        var bytes = new byte[_texWidth * _texHeight * 4];
+        int requiredSize = _texWidth * _texHeight * 4;
+        if (_colorBuffer == null || _colorBuffer.Length != requiredSize)
+            _colorBuffer = new byte[requiredSize];
         for (int i = 0; i < safeLength; i++)
         {
             Color c = GetColor(cellDatas[i]);
             int offset = i * 4;
-            bytes[offset + 0] = (byte)(c.R * 255);
-            bytes[offset + 1] = (byte)(c.G * 255);
-            bytes[offset + 2] = (byte)(c.B * 255);
-            bytes[offset + 3] = (byte)(c.A * 255);
+            _colorBuffer[offset + 0] = (byte)(c.R * 255);
+            _colorBuffer[offset + 1] = (byte)(c.G * 255);
+            _colorBuffer[offset + 2] = (byte)(c.B * 255);
+            _colorBuffer[offset + 3] = (byte)(c.A * 255);
         }
-        var img = Image.CreateFromData(_texWidth, _texHeight, false, Image.Format.Rgba8, bytes);
+        var img = Image.CreateFromData(_texWidth, _texHeight, false, Image.Format.Rgba8, _colorBuffer);
         _tileColorTexture.Update(img);
     }
 
