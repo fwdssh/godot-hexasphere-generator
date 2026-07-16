@@ -1,0 +1,66 @@
+[gd_scene format=3 uid="uid://p86ntf03m7ee"]
+
+[ext_resource type="Script" uid="uid://doxk3fg72fue3" path="res://addons/hexasphere_generator/scenes/sol_example/scripts/camera/FreeCamera3D.cs" id="1_fvii6"]
+[ext_resource type="Script" uid="uid://b426dtntimedh" path="res://addons/hexasphere_generator/scripts/hexasphere_node/HexasphereNode.cs" id="2_pmyo0"]
+
+[node name="sol_example" type="Node" unique_id=337891785]
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1469751737]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 388.22043, 151.26743, 622.6644)
+script = ExtResource("1_fvii6")
+MoveSpeed = 500.0
+
+[node name="Sun" type="Node3D" parent="." unique_id=890310038]
+script = ExtResource("2_pmyo0")
+PlanetRadius = 200.0
+IsBordering = false
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Mercury" type="Node3D" parent="." unique_id=602219564]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 250, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 8.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Venera" type="Node3D" parent="." unique_id=1120294783]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 300, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 15.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Earth" type="Node3D" parent="." unique_id=1743168574]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 360, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 16.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Mars" type="Node3D" parent="." unique_id=475298283]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 430, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 11.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Jupiter" type="Node3D" parent="." unique_id=176589802]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 550, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 45.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Saturn" type="Node3D" parent="." unique_id=1340640964]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 700, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 38.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Uran" type="Node3D" parent="." unique_id=710438456]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 850, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 25.0
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Heptun" type="Node3D" parent="." unique_id=1786709151]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1000, 0, 0)
+script = ExtResource("2_pmyo0")
+PlanetRadius = 24.0
+IsBordering = false
+metadata/_custom_type_script = "uid://b426dtntimedh"
