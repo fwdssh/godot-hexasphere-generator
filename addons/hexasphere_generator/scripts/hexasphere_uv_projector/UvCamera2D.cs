@@ -60,7 +60,7 @@ public partial class UvCamera2D : Camera2D
         }
     }
 
-    public void SetPanLimits(Vector2 mapSize)
+    public virtual void SetPanLimits(Vector2 mapSize)
     {
         _panCenter = mapSize * 0.5f;
         _panLimits = mapSize * 0.6f;

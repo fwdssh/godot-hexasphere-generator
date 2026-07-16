@@ -19,23 +19,29 @@ public partial class HexasphereNode : Node3D
     [Export] public int SubDivision = 20;
     [Export] public int GenerationSeed = -1;
 
+
+    [ExportGroup("Interaction")]
+
+    [Export] public bool IsClickEnabled = true;
+    [Export] public bool IsHoverEnabled = true;
+
+
+
     [ExportGroup("Visual")]
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
 
 
 
-    [Export] public bool IsClickEnabled = true;
     [Export] public bool IsClickVisualEnabled = true;
     [Export] public Color ClickColor = Colors.Black;
 
 
-    [Export] public bool IsHoverEnabled = true;
     [Export] public bool IsHoverVisualEnabled = true;
     [Export] public Color HoverColor = Colors.Red;
 
 
 
-    [ExportGroup("use it if HexSize =1f and u need borders")]
+    [ExportGroup("Borders")]
     [Export] public bool IsBordering = true;
     private Color _borderColor = Colors.White;
     [Export] public Color BorderColor
@@ -458,7 +464,7 @@ protected virtual void OpenUvProjector()
     /// Outputs worldDist = world-space distance from camera to intersection point.
     /// This is scale-invariant and correct for comparing spheres with different transforms.
     /// </summary>
-    public bool TryGetRayIntersectionWorldDistance(Vector2 screenPos, Camera3D camera, out float worldDist)
+    public virtual bool TryGetRayIntersectionWorldDistance(Vector2 screenPos, Camera3D camera, out float worldDist)
     {
         worldDist = float.MaxValue;
         if (camera == null) return false;
@@ -501,7 +507,7 @@ protected virtual void OpenUvProjector()
     /// Clear the current tile selection on this sphere.
     /// Called by HexasphereInputRouter when another sphere is selected.
     /// </summary>
-    public void ClearSelection()
+    public virtual void ClearSelection()
     {
         if (_selectedTileIndex != -1)
         {
@@ -516,7 +522,7 @@ protected virtual void OpenUvProjector()
     /// <summary>
     /// Called by HexasphereInputRouter to close UV projection externally.
     /// </summary>
-    public void CloseUvProjectorFromRouter()
+    public virtual void CloseUvProjectorFromRouter()
     {
         if (UvProjector != null && UvProjector.Visible)
         {

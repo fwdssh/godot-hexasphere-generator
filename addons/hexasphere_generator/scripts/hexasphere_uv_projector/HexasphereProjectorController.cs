@@ -68,7 +68,7 @@ public partial class HexasphereProjectorController : Node2D
     private Dictionary<(int, int), List<int>> _spatialGrid = new();
     private float _cellSize = 64f;
 
-    public void BuildMap2D(NativeHexasphere hexasphere, Color[] colors, Vector2 mapSize)
+    public virtual void BuildMap2D(NativeHexasphere hexasphere, Color[] colors, Vector2 mapSize)
     {
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] BuildMap2D called - hexasphere: {hexasphere != null}, MeshInstance2D: {MeshInstance2D != null}, mapSize: {mapSize}");
         
@@ -416,5 +416,5 @@ public partial class HexasphereProjectorController : Node2D
         return u >= 0f && v >= 0f && u + v < 1f;
     }
 
-    public void MarkDirty() => _meshDirty = true;
+    public virtual void MarkDirty() => _meshDirty = true;
 }

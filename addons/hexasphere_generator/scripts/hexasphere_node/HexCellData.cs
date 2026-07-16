@@ -1,6 +1,6 @@
 using Godot;
 
-public class HexCellData : ICellData
+public partial class HexCellData : Resource, ICellData
 {
    public Color color {get; set;}
 }

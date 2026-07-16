@@ -43,7 +43,7 @@ public class NativeHexasphere : IDisposable
     /// Note: reentrancy across different NativeHexasphere instances depends on the
     /// GDExtension implementation — ensure the C++ side does not use shared static state.
     /// </summary>
-    public void Generate(float radius, int divisions, float hexSize)
+    public virtual void Generate(float radius, int divisions, float hexSize)
     {
         _semaphore.Wait();
         try
@@ -56,7 +56,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public int GetTileCount()
+    public virtual int GetTileCount()
     {
         _semaphore.Wait();
         try
@@ -69,7 +69,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public Vector3 GetTileCenter(int tileIdx)
+    public virtual Vector3 GetTileCenter(int tileIdx)
     {
         _semaphore.Wait();
         try
@@ -82,7 +82,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public Vector3[] GetTilePoints(int tileIdx)
+    public virtual Vector3[] GetTilePoints(int tileIdx)
     {
         _semaphore.Wait();
         try
@@ -95,7 +95,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public int[] GetTileFaces(int tileIdx)
+    public virtual int[] GetTileFaces(int tileIdx)
     {
         _semaphore.Wait();
         try
@@ -108,7 +108,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public Dictionary GetBuildData()
+    public virtual Dictionary GetBuildData()
     {
         _semaphore.Wait();
         try
@@ -121,7 +121,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public Dictionary GetBorderData()
+    public virtual Dictionary GetBorderData()
     {
         _semaphore.Wait();
         try
@@ -134,7 +134,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public Dictionary BuildMesh()
+    public virtual Dictionary BuildMesh()
     {
         _semaphore.Wait();
         try
@@ -147,7 +147,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    public Vector3[] GetAllTileCenters()
+    public virtual Vector3[] GetAllTileCenters()
     {
         _semaphore.Wait();
         try
