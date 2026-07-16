@@ -131,7 +131,7 @@ public static class HexasphereInputRouter
     /// </summary>
     public static void EnterUvMode(Camera3D camera3D)
     {
-        if (camera3D == null) return;
+        if (camera3D == null || !GodotObject.IsInstanceValid(camera3D)) return;
         _managedCamera = camera3D;
         camera3D.ProcessMode = Node.ProcessModeEnum.Disabled;
         camera3D.Current = false;
@@ -143,12 +143,12 @@ public static class HexasphereInputRouter
     /// </summary>
     public static void ExitUvMode()
     {
-        if (_managedCamera != null && _cameraDisabledByUs)
+        if (_managedCamera != null && _cameraDisabledByUs && GodotObject.IsInstanceValid(_managedCamera))
         {
             _managedCamera.ProcessMode = Node.ProcessModeEnum.Inherit;
             _managedCamera.Current = true;
-            _cameraDisabledByUs = false;
         }
+        _cameraDisabledByUs = false;
         _managedCamera = null;
     }
 }

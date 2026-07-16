@@ -55,10 +55,7 @@ public partial class HexasphereNode : Node3D
 
     [ExportGroup("UV Projector")]
     [Export] public NodePath UvProjectorPath;
-    /// <summary>Camera3D node to disable when UV mode is active. Defaults to sibling node named "Camera3D" if left empty.</summary>
-    [Export] public NodePath Camera3DPath;
     private HexasphereProjectorController UvProjector;
-    private Camera3D _camera3D;
 
     private HexasphereVisualController VisualController;
     private ICellData[] _cellDatas;
@@ -130,15 +127,6 @@ public partial class HexasphereNode : Node3D
                 if (DebugLogging) GD.Print($"[HexasphereNode] CanvasLayer found - Visible: {canvasLayer.Visible}, Layer: {canvasLayer.Layer}");
             }
         }
-
-        // Find Camera3D to disable it when UV mode is active
-        if (!string.IsNullOrEmpty(Camera3DPath))
-            _camera3D = GetNodeOrNull<Camera3D>(Camera3DPath);
-        else
-            _camera3D = GetNodeOrNull<Camera3D>("../Camera3D"); // fallback: expects sibling named "Camera3D"
-
-        if (_camera3D == null)
-            GD.PrintErr("[HexasphereNode] Camera3D not found. Set Camera3DPath or place a Camera3D node as a sibling. UV mode will not work correctly.");
 
         // Create NativeHexasphere on main thread (Godot RefCounted)
         var hexasphere = new NativeHexasphere();
@@ -218,6 +206,13 @@ protected virtual void OpenUvProjector()
 {
     if (UvProjector == null || !_planetReady) return;
 
+    var camera3D = GetViewport().GetCamera3D();
+    if (camera3D == null)
+    {
+        GD.PrintErr("[HexasphereNode] No active Camera3D in viewport to disable for UV mode.");
+        return;
+    }
+
     if (DebugLogging) GD.Print("[HexasphereNode] Opening UV projector...");
 
     // Check CanvasLayer visibility
@@ -234,7 +229,7 @@ protected virtual void OpenUvProjector()
     // Request UV projection through router (ensures single active)
     HexasphereInputRouter.RequestUvProjection(this);
     // Disable camera through router (ensures no race)
-    HexasphereInputRouter.EnterUvMode(_camera3D);
+    HexasphereInputRouter.EnterUvMode(camera3D);
 
     if (DebugLogging) GD.Print($"[HexasphereNode] UvProjector - Visible: {UvProjector.Visible}, ProcessMode: {UvProjector.ProcessMode}, Position: {UvProjector.Position}, GlobalPosition: {UvProjector.GlobalPosition}");
 
