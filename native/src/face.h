@@ -10,14 +10,11 @@ class Point;
 class Face
 {
 private:
-    static int _globalIdCounter;
-
     int _id;
     Point *_points[3];
 
 public:
-    Face(Point *point1, Point *point2, Point *point3, bool trackFaceInPoints = true);
-    Face(Point *point1, Point *point2, Point *point3, int localId); // local id, no global counter (thread-safe)
+    Face(Point *point1, Point *point2, Point *point3, int localId, bool trackFaceInPoints = true); // local id, no global counter (thread-safe)
 
     Face(const Face &) = delete;
     Face &operator=(const Face &) = delete;

@@ -2,10 +2,8 @@
 #include "point.h"
 #include <stdexcept>
 
-int Face::_globalIdCounter = 0;
-
-Face::Face(Point *point1, Point *point2, Point *point3, bool trackFaceInPoints)
-    : _id(++_globalIdCounter)
+Face::Face(Point *point1, Point *point2, Point *point3, int localId, bool trackFaceInPoints)
+    : _id(localId)
 {
     Vector3 p1 = point1->get_position();
     Vector3 p2 = point2->get_position();
@@ -39,37 +37,6 @@ Face::Face(Point *point1, Point *point2, Point *point3, bool trackFaceInPoints)
         _points[1]->assign_face(this);
         _points[2]->assign_face(this);
     }
-}
-
-Face::Face(Point *point1, Point *point2, Point *point3, int localId)
-    : _id(localId)
-{
-    Vector3 p1 = point1->get_position();
-    Vector3 p2 = point2->get_position();
-    Vector3 p3 = point3->get_position();
-
-    Vector3 center(
-        (p1.x + p2.x + p3.x) / 3.0f,
-        (p1.y + p2.y + p3.y) / 3.0f,
-        (p1.z + p2.z + p3.z) / 3.0f);
-
-    Vector3 cross = (p2 - p1).cross(p3 - p1);
-    float crossLen = cross.length();
-    bool outward = center.length_squared() < (center + (cross / crossLen)).length_squared();
-
-    if (outward)
-    {
-        _points[0] = point1;
-        _points[1] = point2;
-        _points[2] = point3;
-    }
-    else
-    {
-        _points[0] = point1;
-        _points[1] = point3;
-        _points[2] = point2;
-    }
-    // No trackFaceInPoints — tile-local faces don't register with points
 }
 
 Face::Face(Face &&other) noexcept

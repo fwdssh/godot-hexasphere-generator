@@ -32,6 +32,9 @@ private:
     float _pointEpsilon;
     float _gridScale;
 
+    int _nextPointId = 0;
+    int _nextFaceId = 0;
+
     std::vector<std::unique_ptr<Point>> _points;
     std::vector<std::unique_ptr<Face>> _faces;
     std::vector<std::unique_ptr<Tile>> _tiles;

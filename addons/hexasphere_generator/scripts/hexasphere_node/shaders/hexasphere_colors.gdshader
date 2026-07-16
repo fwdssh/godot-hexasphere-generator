@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode unshaded;
+//render_mode unshaded;
 #include "res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/tile_uv.gdshaderinc"
 uniform sampler2D tile_colors;
 uniform int tile_count;

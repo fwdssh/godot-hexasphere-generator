@@ -19,7 +19,7 @@ Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
         throw std::invalid_argument("Radius must be positive");
 
     _pointEpsilon = 1e-5f * _radius;
-    _gridScale = 2e5f / _radius; // cell_width = 0.5 * epsilon, запас от float-погрешностей
+    _gridScale = 1e5f / _radius; // cell_width = epsilon, ±1-cell search is sufficient
 
     int estimatedPoints = 10 * divisions * divisions + 2;
     _points.reserve(estimatedPoints);
@@ -51,7 +51,7 @@ std::vector<Face *> Hexasphere::construct_icosahedron()
     };
 
     auto make = [&](Point *p1, Point *p2, Point *p3) -> Face * {
-        auto face = std::make_unique<Face>(p1, p2, p3, false);
+        auto face = std::make_unique<Face>(p1, p2, p3, _nextFaceId++, false);
         Face *ptr = face.get();
         _faces.push_back(std::move(face));
         return ptr;
@@ -91,7 +91,7 @@ Point *Hexasphere::cache_point(const Vector3 &raw_position)
                 return it->second;
     }
 
-    auto pt = std::make_unique<Point>(position);
+    auto pt = std::make_unique<Point>(position, _nextPointId++);
     Point *ptr = pt.get();
     _pointGrid[gridPos] = ptr;
     _points.push_back(std::move(pt));
@@ -104,7 +104,7 @@ void Hexasphere::subdivide_icosahedron(const std::vector<Face *> &ico_faces)
     _faces.reserve(_faces.size() + estimatedFaces);
 
     auto make_face = [&](Point *p1, Point *p2, Point *p3) -> void {
-        auto face = std::make_unique<Face>(p1, p2, p3);
+        auto face = std::make_unique<Face>(p1, p2, p3, _nextFaceId++, true);
         _faces.push_back(std::move(face));
     };
 

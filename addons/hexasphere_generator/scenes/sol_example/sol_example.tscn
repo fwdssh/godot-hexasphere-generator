@@ -16,46 +16,56 @@ PlanetRadius = 200.0
 IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="Sun" unique_id=1275277809]
+light_energy = 3.78
+
 [node name="Mercury" type="Node3D" parent="." unique_id=602219564]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 250, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 8.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Venera" type="Node3D" parent="." unique_id=1120294783]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 300, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 15.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Earth" type="Node3D" parent="." unique_id=1743168574]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 360, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 16.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Mars" type="Node3D" parent="." unique_id=475298283]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 430, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 11.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Jupiter" type="Node3D" parent="." unique_id=176589802]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 550, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 45.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Saturn" type="Node3D" parent="." unique_id=1340640964]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 700, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 38.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Uran" type="Node3D" parent="." unique_id=710438456]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 850, 0, 0)
 script = ExtResource("2_pmyo0")
 PlanetRadius = 25.0
+IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Heptun" type="Node3D" parent="." unique_id=1786709151]

@@ -53,7 +53,8 @@ void Tile::build_faces(const std::vector<Face *> &icosahedron_faces)
             &_boundaryPoints[0],
             &_boundaryPoints[i],
             &_boundaryPoints[i + 1],
-            localFaceId++);
+            localFaceId++,
+            false);
 
         // Determine actual local boundary indices by pointer comparison — O(1) per vertex
         auto findLocalIdx = [&](Point *p) -> int {
