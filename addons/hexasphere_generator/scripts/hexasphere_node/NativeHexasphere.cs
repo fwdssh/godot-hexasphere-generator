@@ -37,6 +37,12 @@ public class NativeHexasphere : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Generate the hexasphere mesh data. Thread-safe via internal semaphore.
+    /// Each instance is independently safe to call from background threads.
+    /// Note: reentrancy across different NativeHexasphere instances depends on the
+    /// GDExtension implementation — ensure the C++ side does not use shared static state.
+    /// </summary>
     public void Generate(float radius, int divisions, float hexSize)
     {
         _semaphore.Wait();

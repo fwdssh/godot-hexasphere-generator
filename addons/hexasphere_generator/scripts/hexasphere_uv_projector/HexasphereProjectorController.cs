@@ -11,7 +11,6 @@ public partial class HexasphereProjectorController : Node2D
     [Export] public Vector2 MapSize = new Vector2(1920, 1080);
     [Export] public NodePath MeshInstance2DPath;
     [Export] public NodePath OverlayMeshInstance2DPath;
-    [Export] public NodePath Camera3DPath;
     
     public MeshInstance2D MeshInstance2D;
     public MeshInstance2D OverlayMeshInstance2D;
@@ -148,13 +147,10 @@ public partial class HexasphereProjectorController : Node2D
             Vector2[] uvs = ComputeTileUvs(t);
 
             // Clamp UVs to valid range and render instead of discarding polar/seam tiles
-            bool clamped = false;
             for (int ci = 0; ci < uvs.Length; ci++)
             {
-                float origU = uvs[ci].X;
                 float clampedU = Mathf.Clamp(uvs[ci].X, 0f, 1f);
                 float clampedV = Mathf.Clamp(uvs[ci].Y, 0f, 1f);
-                if (Mathf.Abs(clampedU - origU) > 0.001f) clamped = true;
                 uvs[ci] = new Vector2(clampedU, clampedV);
             }
 

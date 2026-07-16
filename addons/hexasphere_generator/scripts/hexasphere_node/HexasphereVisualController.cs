@@ -113,16 +113,16 @@ public partial class HexasphereVisualController : Node3D
 
     virtual public void SetSelection(Color? selectedColor, int selectedIdx, Color? hoverColor, int hoverIdx)
     {
+        // Always update indices so the shader never holds stale values.
+        // When color is null (visual disabled), pass -1 to suppress the color overlay
+        // while borders still receive the real index below.
+        _planetMaterial?.SetShaderParameter("selected_idx", selectedColor.HasValue ? selectedIdx : -1);
+        _planetMaterial?.SetShaderParameter("hover_idx", hoverColor.HasValue ? hoverIdx : -1);
+
         if (selectedColor != null)
-        {
             _planetMaterial?.SetShaderParameter("selected_color", new Vector4(selectedColor.Value.R, selectedColor.Value.G, selectedColor.Value.B, selectedColor.Value.A));
-            _planetMaterial?.SetShaderParameter("selected_idx", selectedIdx);
-        }
         if (hoverColor != null)
-        {
             _planetMaterial?.SetShaderParameter("hover_color", new Vector4(hoverColor.Value.R, hoverColor.Value.G, hoverColor.Value.B, hoverColor.Value.A));
-            _planetMaterial?.SetShaderParameter("hover_idx", hoverIdx);
-        }
 
         if (_isBorderVisible)
             _borderRenderer.UpdateBorders(selectedIdx);

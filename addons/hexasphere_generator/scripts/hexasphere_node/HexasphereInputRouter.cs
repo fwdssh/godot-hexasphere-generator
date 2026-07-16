@@ -28,7 +28,10 @@ public static class HexasphereInputRouter
     {
         _registeredSpheres.Remove(sphere);
         if (_uvProjectionOwner == sphere)
+        {
             _uvProjectionOwner = null;
+            ExitUvMode(); // Restore camera state when UV owner leaves the tree
+        }
     }
 
     /// <summary>
