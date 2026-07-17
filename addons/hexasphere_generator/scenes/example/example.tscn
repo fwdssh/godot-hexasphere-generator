@@ -14,12 +14,10 @@ script = ExtResource("1_ejjd7")
 
 [node name="Hexasphere" type="Node3D" parent="." unique_id=798022267]
 script = ExtResource("2_t0nab")
+IsEmissive = true
 IsBordering = false
-UvProjectorPath = NodePath("../CanvasLayer/HexasphereUvProjector")
+UvProjectorPath = NodePath("../HexasphereUvProjector")
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
-[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=337140595]
-layer = 10
-follow_viewport_enabled = true
-
-[node name="HexasphereUvProjector" parent="CanvasLayer" unique_id=1274967106 instance=ExtResource("3_thwts")]
+[node name="HexasphereUvProjector" parent="." unique_id=1274967106 instance=ExtResource("3_thwts")]
+SelectionColor = Color(0.9561879, 0.9569451, 0.9696234, 1)

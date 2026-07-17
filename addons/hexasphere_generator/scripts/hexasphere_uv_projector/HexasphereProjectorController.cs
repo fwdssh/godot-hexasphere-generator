@@ -9,8 +9,7 @@ public partial class HexasphereProjectorController : Node2D
     [Signal] public delegate void ProjectionClosedEventHandler();
 
     [Export] public Vector2 MapSize = new Vector2(1920, 1080);
-     public NodePath MeshInstance2DPath;
-     public NodePath OverlayMeshInstance2DPath;
+    [Export] public Color SelectionColor = Colors.Yellow;
     
     public MeshInstance2D MeshInstance2D;
     public MeshInstance2D OverlayMeshInstance2D;
@@ -24,7 +23,6 @@ public partial class HexasphereProjectorController : Node2D
     private NativeHexasphere _cachedHexasphere;
     private Color[] _cachedColors;
     private Vector2 _cachedMapSize;
-    private const bool DebugLogging = false;
 
 
     
@@ -36,24 +34,11 @@ public partial class HexasphereProjectorController : Node2D
         
         EnsureChildNodes();
 
-    if (MeshInstance2DPath != null && !MeshInstance2DPath.IsEmpty)
-        MeshInstance2D = GetNodeOrNull<MeshInstance2D>(MeshInstance2DPath);
-    else
-        MeshInstance2D = GetNodeOrNull<MeshInstance2D>("MeshInstance2D");
-    
-    if (OverlayMeshInstance2DPath != null && !OverlayMeshInstance2DPath.IsEmpty)
-        OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>(OverlayMeshInstance2DPath);
-    else
-        OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>("OverlayMeshInstance2D");
+    MeshInstance2D = GetNodeOrNull<MeshInstance2D>("MeshInstance2D");
+    OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>("OverlayMeshInstance2D");
     
     _camera2D = GetNodeOrNull<UvCamera2D>("Camera2D");
         
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] _Ready - MeshInstance2D: {MeshInstance2D != null}, OverlayMeshInstance2D: {OverlayMeshInstance2D != null}");
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] _Ready - Self Position: {Position}, GlobalPosition: {GlobalPosition}");
-        if (MeshInstance2D != null)
-        {
-            if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Visible: {MeshInstance2D.Visible}, GlobalPosition: {MeshInstance2D.GlobalPosition}, Position: {MeshInstance2D.Position}");
-        }
     }
 
 
@@ -85,7 +70,7 @@ public partial class HexasphereProjectorController : Node2D
             if (camera != null)
             {
                 camera.MakeCurrent();
-                if (DebugLogging) GD.Print("[HexasphereProjectorController] Camera2D made current");
+
             }
         }
     }
@@ -101,7 +86,6 @@ public partial class HexasphereProjectorController : Node2D
 
     public virtual void BuildMap2D(NativeHexasphere hexasphere, Color[] colors, Vector2 mapSize)
     {
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] BuildMap2D called - hexasphere: {hexasphere != null}, MeshInstance2D: {MeshInstance2D != null}, mapSize: {mapSize}");
         
         if (hexasphere == null || MeshInstance2D == null)
         {
@@ -110,7 +94,6 @@ public partial class HexasphereProjectorController : Node2D
         }
 
         int tileCount = hexasphere.GetTileCount();
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] Tile count: {tileCount}");
 
         if (colors != null && colors.Length < tileCount)
             throw new System.ArgumentException(
@@ -154,11 +137,8 @@ public partial class HexasphereProjectorController : Node2D
             camera.Position = new Vector2(mapSize.X / 2f, mapSize.Y / 2f);
             camera.TargetZoom = 0.5f; // Start zoomed out to see the whole map
             camera.SetPanLimits(mapSize);
-            if (DebugLogging) GD.Print($"[HexasphereProjectorController] Camera centered at {camera.Position}, TargetZoom: {camera.TargetZoom}");
         }
         
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] BuildMap2D completed - Mesh created: {MeshInstance2D.Mesh != null}");
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Visible: {MeshInstance2D.Visible}, GlobalPosition: {MeshInstance2D.GlobalPosition}, Position: {MeshInstance2D.Position}");
     }
 
     private void BuildMesh(Color[] colors, Vector2 mapSize)
@@ -213,12 +193,8 @@ public partial class HexasphereProjectorController : Node2D
             var material = new CanvasItemMaterial();
             material.BlendMode = CanvasItemMaterial.BlendModeEnum.Mix;
             MeshInstance2D.Material = material;
-            if (DebugLogging) GD.Print("[HexasphereProjectorController] Created CanvasItemMaterial for MeshInstance2D");
         }
         
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] BuildMesh completed - Mesh created: {MeshInstance2D.Mesh != null}, Vertices: {_hitTris.Count * 3}");
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Visible: {MeshInstance2D.Visible}, GlobalPosition: {MeshInstance2D.GlobalPosition}, Position: {MeshInstance2D.Position}");
-        if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Material: {MeshInstance2D.Material != null}, ZIndex: {MeshInstance2D.ZIndex}");
     }
 
     private Vector2[] ComputeTileUvs(int tileIndex)
@@ -297,7 +273,7 @@ public partial class HexasphereProjectorController : Node2D
 
     private Vector2 UvToScreen(Vector2 uv, Vector2 mapSize)
     {
-        return new Vector2(uv.X * mapSize.X, (1f - uv.Y) * mapSize.Y);
+        return new Vector2(uv.X * mapSize.X, uv.Y * mapSize.Y);
     }
 
     private void BuildSpatialGrid()
@@ -374,11 +350,11 @@ public partial class HexasphereProjectorController : Node2D
             var b = UvToScreen(uvs[i + 1], _lastMapSize);
             var c = UvToScreen(uvs[next + 1], _lastMapSize);
 
-            st.SetColor(Colors.Yellow);
+            st.SetColor(SelectionColor);
             st.AddVertex(new Vector3(a.X, a.Y, 0));
-            st.SetColor(Colors.Yellow);
+            st.SetColor(SelectionColor);
             st.AddVertex(new Vector3(b.X, b.Y, 0));
-            st.SetColor(Colors.Yellow);
+            st.SetColor(SelectionColor);
             st.AddVertex(new Vector3(c.X, c.Y, 0));
         }
 
@@ -391,6 +367,8 @@ public partial class HexasphereProjectorController : Node2D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (!Visible) return;
+        
         if (@event.IsActionPressed("ui_close_uv_map"))
         {
             Visible = false;

@@ -35,8 +35,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 360, 0, 0)
 script = ExtResource("4_ntexn")
 EarthMap = ExtResource("5_x6ege")
 SubDivision = 50
+IsBordering = false
 BorderColor = Color(0, 0, 0, 1)
-UvProjectorPath = NodePath("../CanvasLayer/HexasphereUVProjector")
+UvProjectorPath = NodePath("../HexasphereUVProjector")
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="Jupiter" type="Node3D" parent="." unique_id=288307920]
@@ -79,6 +80,7 @@ script = ExtResource("2_pmyo0")
 PlanetRadius = 200.0
 SubDivision = 50
 IsEmissive = true
+IsBordering = false
 BorderColor = Color(0, 0, 0, 1)
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
@@ -104,8 +106,6 @@ PlanetRadius = 15.0
 IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
-[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=869039055]
-
-[node name="HexasphereUVProjector" type="Node2D" parent="CanvasLayer" unique_id=1358165244]
+[node name="HexasphereUVProjector" type="Node2D" parent="." unique_id=1358165244]
 script = ExtResource("13_7vr26")
 metadata/_custom_type_script = "uid://c5uqdwxgpsnjo"

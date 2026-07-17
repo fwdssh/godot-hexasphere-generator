@@ -8,12 +8,13 @@ namespace Godot.Hexasphere
 
         public static Vector2 CalculateUv(Vector3 position)
         {
-            float longitude = Mathf.Atan2(position.Z, position.X);
+            float longitude = Mathf.Atan2(position.X, position.Z);
             float radius = position.Length();
             float latitude = Mathf.Asin(radius > 0 ? position.Y / radius : 0f);
 
             float u = (longitude + Mathf.Pi) / (2f * Mathf.Pi);
             float v = (latitude + (Mathf.Pi / 2f)) / Mathf.Pi;
+            v = 1.0f - v;
 
             return new Vector2(u, v);
         }
