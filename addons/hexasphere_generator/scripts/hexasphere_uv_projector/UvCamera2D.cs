@@ -37,12 +37,12 @@ public partial class UvCamera2D : Camera2D
                 GetViewport().SetInputAsHandled();
             }
 
-            if (mouseButton.ButtonIndex == MouseButton.WheelUp)
+            if (mouseButton.ButtonIndex == MouseButton.WheelUp && mouseButton.Pressed)
             {
                 TargetZoom = Mathf.Clamp(TargetZoom * ZoomFactor, MinZoom, MaxZoom);
                 GetViewport().SetInputAsHandled();
             }
-            else if (mouseButton.ButtonIndex == MouseButton.WheelDown)
+            else if (mouseButton.ButtonIndex == MouseButton.WheelDown && mouseButton.Pressed)
             {
                 TargetZoom = Mathf.Clamp(TargetZoom / ZoomFactor, MinZoom, MaxZoom);
                 GetViewport().SetInputAsHandled();

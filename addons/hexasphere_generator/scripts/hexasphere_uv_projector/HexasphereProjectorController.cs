@@ -9,8 +9,8 @@ public partial class HexasphereProjectorController : Node2D
     [Signal] public delegate void ProjectionClosedEventHandler();
 
     [Export] public Vector2 MapSize = new Vector2(1920, 1080);
-    [Export] public NodePath MeshInstance2DPath;
-    [Export] public NodePath OverlayMeshInstance2DPath;
+     public NodePath MeshInstance2DPath;
+     public NodePath OverlayMeshInstance2DPath;
     
     public MeshInstance2D MeshInstance2D;
     public MeshInstance2D OverlayMeshInstance2D;
@@ -26,17 +26,27 @@ public partial class HexasphereProjectorController : Node2D
     private Vector2 _cachedMapSize;
     private const bool DebugLogging = false;
 
+
+    
+
+
     public override void _Ready()
     {
         ProcessMode = ProcessModeEnum.Disabled;
         
-        if (MeshInstance2DPath != null)
-            MeshInstance2D = GetNodeOrNull<MeshInstance2D>(MeshInstance2DPath);
-        
-        if (OverlayMeshInstance2DPath != null)
-            OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>(OverlayMeshInstance2DPath);
-        
-        _camera2D = GetNodeOrNull<UvCamera2D>("Camera2D");
+        EnsureChildNodes();
+
+    if (MeshInstance2DPath != null && !MeshInstance2DPath.IsEmpty)
+        MeshInstance2D = GetNodeOrNull<MeshInstance2D>(MeshInstance2DPath);
+    else
+        MeshInstance2D = GetNodeOrNull<MeshInstance2D>("MeshInstance2D");
+    
+    if (OverlayMeshInstance2DPath != null && !OverlayMeshInstance2DPath.IsEmpty)
+        OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>(OverlayMeshInstance2DPath);
+    else
+        OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>("OverlayMeshInstance2D");
+    
+    _camera2D = GetNodeOrNull<UvCamera2D>("Camera2D");
         
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] _Ready - MeshInstance2D: {MeshInstance2D != null}, OverlayMeshInstance2D: {OverlayMeshInstance2D != null}");
         if (DebugLogging) GD.Print($"[HexasphereProjectorController] _Ready - Self Position: {Position}, GlobalPosition: {GlobalPosition}");
@@ -45,6 +55,27 @@ public partial class HexasphereProjectorController : Node2D
             if (DebugLogging) GD.Print($"[HexasphereProjectorController] MeshInstance2D - Visible: {MeshInstance2D.Visible}, GlobalPosition: {MeshInstance2D.GlobalPosition}, Position: {MeshInstance2D.Position}");
         }
     }
+
+
+
+    private void EnsureChildNodes()
+{
+    if (GetNodeOrNull<MeshInstance2D>("MeshInstance2D") == null)
+    {
+        var mesh = new MeshInstance2D { Name = "MeshInstance2D" };
+        AddChild(mesh);
+    }
+    if (GetNodeOrNull<MeshInstance2D>("OverlayMeshInstance2D") == null)
+    {
+        var overlay = new MeshInstance2D { Name = "OverlayMeshInstance2D" };
+        AddChild(overlay);
+    }
+    if (GetNodeOrNull<UvCamera2D>("Camera2D") == null)
+    {
+        var cam = new UvCamera2D { Name = "Camera2D" };
+        AddChild(cam);
+    }
+}
     
     public override void _Notification(int what)
     {
@@ -366,10 +397,6 @@ public partial class HexasphereProjectorController : Node2D
             ProcessMode = ProcessModeEnum.Disabled;
 
             EmitSignal(SignalName.ProjectionClosed);
-
-            // Restore camera through router (ensures no race with other spheres)
-            HexasphereInputRouter.ExitUvMode();
-            HexasphereInputRouter.OnUvProjectionClosed(null);
 
             GetViewport().SetInputAsHandled();
             return;

@@ -591,7 +591,6 @@ virtual protected void OnShaderReady()
             UvProjector.Visible = false;
             UvProjector.ProcessMode = ProcessModeEnum.Disabled;
             UvProjector.EmitSignal(HexasphereProjectorController.SignalName.ProjectionClosed);
-            OnProjectionClosed();
         }
     }
 
