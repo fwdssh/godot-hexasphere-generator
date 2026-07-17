@@ -10,6 +10,8 @@ uniform vec4 selected_color = vec4(1.0, 0.8, 0.0, 1.0);
 uniform int hover_idx = -1;
 uniform vec4 hover_color = vec4(1.0, 0.0, 0.0, 1.0);
 
+uniform bool is_emissive = false;
+
 void vertex() {
     int idx = int(round(UV2.x));
 
@@ -25,5 +27,8 @@ void vertex() {
 
 void fragment() {
     ALBEDO    = COLOR.rgb;
-
+    
+    if (is_emissive) {
+        EMISSION = COLOR.rgb;
+    }
 }

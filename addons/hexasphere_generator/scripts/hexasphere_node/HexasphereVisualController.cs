@@ -42,6 +42,12 @@ public partial class HexasphereVisualController : Node3D
 
     virtual public void SetBorderColor(Color color) => _borderRenderer?.SetBorderColor(color);
 
+    virtual public void SetEmissive(bool emissive)
+    {
+        if (_planetMaterial != null)
+            _planetMaterial.SetShaderParameter("is_emissive", emissive);
+    }
+
     virtual public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible, Shader colorsShader, Shader bordersShader)
     {
         _planetArrayMesh   = mesh;

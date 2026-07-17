@@ -29,7 +29,7 @@ public partial class HexasphereNode : Node3D
 
     [ExportGroup("Visual")]
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
-
+    [Export] public bool IsEmissive = false;
 
 
     [Export] public bool IsClickVisualEnabled = true;
@@ -195,6 +195,7 @@ virtual protected void OnShaderReady()
 {
     VisualController.ShaderReady -= OnShaderReady;
     VisualController.DrawColors(_cellDatas);
+    VisualController.SetEmissive(IsEmissive);
 
     // Extract colors for UV projector before disposing visual controller's reference
     if (_hexasphere != null && _cellDatas != null)

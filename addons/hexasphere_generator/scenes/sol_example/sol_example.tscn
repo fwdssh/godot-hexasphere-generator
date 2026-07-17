@@ -10,15 +10,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 388.22043, 151.26743, 622.664
 script = ExtResource("1_fvii6")
 MoveSpeed = 500.0
 
-[node name="Sun" type="Node3D" parent="." unique_id=890310038]
-script = ExtResource("2_pmyo0")
-PlanetRadius = 200.0
-IsBordering = false
-metadata/_custom_type_script = "uid://b426dtntimedh"
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="Sun" unique_id=1275277809]
-light_energy = 3.78
-
 [node name="Mercury" type="Node3D" parent="." unique_id=602219564]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 250, 0, 0)
 script = ExtResource("2_pmyo0")
@@ -74,3 +65,16 @@ script = ExtResource("2_pmyo0")
 PlanetRadius = 24.0
 IsBordering = false
 metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="Sol" type="Node" parent="." unique_id=2035822271]
+
+[node name="Sun" type="Node3D" parent="Sol" unique_id=890310038]
+script = ExtResource("2_pmyo0")
+PlanetRadius = 200.0
+IsEmissive = true
+IsBordering = false
+metadata/_custom_type_script = "uid://b426dtntimedh"
+
+[node name="OmniLight3D" type="OmniLight3D" parent="Sol/Sun" unique_id=954543747]
+omni_range = 4096.0
+omni_attenuation = 0.0
