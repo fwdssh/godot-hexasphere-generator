@@ -155,46 +155,63 @@ public partial class HexasphereProjectorController : Node2D
             int n = pts.Length;
             if (n < 3) continue;
 
-            Vector2[] uvs = ComputeTileUvs(t);
-
-            // Clamp UVs to valid range and render instead of discarding polar/seam tiles
-            for (int ci = 0; ci < uvs.Length; ci++)
-            {
-                float clampedU = Mathf.Clamp(uvs[ci].X, 0f, 1f);
-                float clampedV = Mathf.Clamp(uvs[ci].Y, 0f, 1f);
-                uvs[ci] = new Vector2(clampedU, clampedV);
-            }
-
             Color color = colors != null ? colors[t] : Colors.White;
 
-            var a = UvToScreen(uvs[0], mapSize);
-            for (int i = 0; i < n; i++)
+            if (IsPoleCapTile(t))
             {
-                int next = (i + 1) % n;
-                var b = UvToScreen(uvs[i + 1], mapSize);
-                var c = UvToScreen(uvs[next + 1], mapSize);
-
-                st.SetColor(color);
-                st.AddVertex(new Vector3(a.X, a.Y, 0));
-                st.SetColor(color);
-                st.AddVertex(new Vector3(b.X, b.Y, 0));
-                st.SetColor(color);
-                st.AddVertex(new Vector3(c.X, c.Y, 0));
-
-                _hitTris.Add(new HitTri { TileIndex = t, A = a, B = b, C = c });
+                EmitPoleCapTile(st, t, color, mapSize);
+                continue;
             }
+
+            Vector2[] uvs = ComputeTileUvs(t);
+
+            // Clamp only V (latitude) - poles are fixed points, not a seam.
+            // Don't clamp U (longitude): seam tiles legitimately extend beyond [0,1]
+            // to preserve hexagon shape. Such tiles are duplicated below.
+            for (int ci = 0; ci < uvs.Length; ci++)
+                uvs[ci] = new Vector2(uvs[ci].X, Mathf.Clamp(uvs[ci].Y, 0f, 1f));
+
+            float minU = float.MaxValue, maxU = float.MinValue;
+            for (int i = 0; i < uvs.Length; i++)
+            {
+                if (uvs[i].X < minU) minU = uvs[i].X;
+                if (uvs[i].X > maxU) maxU = uvs[i].X;
+            }
+
+            // Main copy + wrapped copy on the side where the tile extends beyond the boundary
+            EmitTile(st, uvs, n, color, mapSize, 0f, t);
+            if (minU < 0f) EmitTile(st, uvs, n, color, mapSize, 1f, t);
+            if (maxU > 1f) EmitTile(st, uvs, n, color, mapSize, -1f, t);
         }
 
         MeshInstance2D.Mesh = st.Commit();
         
-        // Create material if not exists
         if (MeshInstance2D.Material == null)
         {
             var material = new CanvasItemMaterial();
             material.BlendMode = CanvasItemMaterial.BlendModeEnum.Mix;
             MeshInstance2D.Material = material;
         }
-        
+    }
+
+    private void EmitTile(SurfaceTool st, Vector2[] uvs, int n, Color color, Vector2 mapSize, float uShift, int tileIndex)
+    {
+        var a = UvToScreen(new Vector2(uvs[0].X + uShift, uvs[0].Y), mapSize);
+        for (int i = 0; i < n; i++)
+        {
+            int next = (i + 1) % n;
+            var b = UvToScreen(new Vector2(uvs[i + 1].X + uShift, uvs[i + 1].Y), mapSize);
+            var c = UvToScreen(new Vector2(uvs[next + 1].X + uShift, uvs[next + 1].Y), mapSize);
+
+            st.SetColor(color);
+            st.AddVertex(new Vector3(a.X, a.Y, 0));
+            st.SetColor(color);
+            st.AddVertex(new Vector3(b.X, b.Y, 0));
+            st.SetColor(color);
+            st.AddVertex(new Vector3(c.X, c.Y, 0));
+
+            _hitTris.Add(new HitTri { TileIndex = tileIndex, A = a, B = b, C = c });
+        }
     }
 
     private Vector2[] ComputeTileUvs(int tileIndex)
@@ -219,6 +236,9 @@ public partial class HexasphereProjectorController : Node2D
             isPole[i + 1] = r > 0 && Mathf.Abs(pos.Y) / r > HexasphereUvProjector.PoleThreshold;
         }
 
+        // Replace unreliable pole vertices with the average of reliable neighbors,
+        // WITHOUT wrapping into [0,1) — otherwise the fixed vertex can end up
+        // on the opposite side of the seam from the rest of the tile.
         for (int i = 0; i < uvs.Length; i++)
         {
             if (!isPole[i]) continue;
@@ -238,18 +258,14 @@ public partial class HexasphereProjectorController : Node2D
             }
 
             if (count > 0)
-            {
-                float avg = sum / count;
-                uvs[i].X = avg - Mathf.Floor(avg);
-            }
+                uvs[i].X = sum / count;
         }
 
+        // Unwrap relative to center for ALL vertices, including fixed pole vertices —
+        // otherwise they remain in a different longitude domain than the rest of the tile.
         float refU = uvs[0].X;
         for (int i = 0; i < uvs.Length; i++)
-        {
-            if (!isPole[i])
-                uvs[i].X += HexasphereUvProjector.GetSeamOffset(uvs[i].X, refU);
-        }
+            uvs[i].X += HexasphereUvProjector.GetSeamOffset(uvs[i].X, refU);
 
         float minU = float.MaxValue, maxU = float.MinValue;
         for (int i = 0; i < uvs.Length; i++)
@@ -263,7 +279,7 @@ public partial class HexasphereProjectorController : Node2D
             float shift = refU < (minU + maxU) * 0.5f ? 1f : -1f;
             for (int i = 0; i < uvs.Length; i++)
             {
-                if (!isPole[i] && ((shift > 0f && uvs[i].X < refU) || (shift < 0f && uvs[i].X > refU)))
+                if ((shift > 0f && uvs[i].X < refU) || (shift < 0f && uvs[i].X > refU))
                     uvs[i].X += shift;
             }
         }
@@ -339,16 +355,36 @@ public partial class HexasphereProjectorController : Node2D
         if (n < 3) return;
 
         Vector2[] uvs = ComputeTileUvs(selectedTile);
+        for (int ci = 0; ci < uvs.Length; ci++)
+            uvs[ci] = new Vector2(uvs[ci].X, Mathf.Clamp(uvs[ci].Y, 0f, 1f));
+
+        float minU = float.MaxValue, maxU = float.MinValue;
+        for (int i = 0; i < uvs.Length; i++)
+        {
+            if (uvs[i].X < minU) minU = uvs[i].X;
+            if (uvs[i].X > maxU) maxU = uvs[i].X;
+        }
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
 
-        var a = UvToScreen(uvs[0], _lastMapSize);
+        EmitOverlayTile(st, uvs, n, _lastMapSize, 0f);
+        if (minU < 0f) EmitOverlayTile(st, uvs, n, _lastMapSize, 1f);
+        if (maxU > 1f) EmitOverlayTile(st, uvs, n, _lastMapSize, -1f);
+
+        if (OverlayMeshInstance2D.Mesh is ArrayMesh oldMesh)
+            oldMesh.Dispose();
+        OverlayMeshInstance2D.Mesh = st.Commit();
+    }
+
+    private void EmitOverlayTile(SurfaceTool st, Vector2[] uvs, int n, Vector2 mapSize, float uShift)
+    {
+        var a = UvToScreen(new Vector2(uvs[0].X + uShift, uvs[0].Y), mapSize);
         for (int i = 0; i < n; i++)
         {
             int next = (i + 1) % n;
-            var b = UvToScreen(uvs[i + 1], _lastMapSize);
-            var c = UvToScreen(uvs[next + 1], _lastMapSize);
+            var b = UvToScreen(new Vector2(uvs[i + 1].X + uShift, uvs[i + 1].Y), mapSize);
+            var c = UvToScreen(new Vector2(uvs[next + 1].X + uShift, uvs[next + 1].Y), mapSize);
 
             st.SetColor(SelectionColor);
             st.AddVertex(new Vector3(a.X, a.Y, 0));
@@ -357,12 +393,78 @@ public partial class HexasphereProjectorController : Node2D
             st.SetColor(SelectionColor);
             st.AddVertex(new Vector3(c.X, c.Y, 0));
         }
+    }
 
-        if (OverlayMeshInstance2D.Mesh is ArrayMesh oldMesh)
+    private bool IsPoleCapTile(int tileIndex)
+    {
+        // Detect pole-cap tiles by how far their vertex ring winds around the
+        // pole in longitude, not by center Y-position. A tile whose vertices
+        // wrap almost a full turn (~1.0) around the pole needs fan rendering;
+        // this doesn't require tuning a threshold against sphere subdivision.
+        Vector3[] pts = _hexasphere.GetTilePoints(tileIndex);
+        int n = pts.Length;
+        if (n < 3) return false;
+
+        float total = 0f;
+        for (int i = 0; i < n; i++)
         {
-            oldMesh.Dispose();
+            Vector2 uvA = HexasphereUvProjector.CalculateUv(pts[i]);
+            Vector2 uvB = HexasphereUvProjector.CalculateUv(pts[(i + 1) % n]);
+            float d = uvB.X - uvA.X;
+            d -= Mathf.Round(d); // wrap delta into (-0.5, 0.5]
+            total += d;
         }
-        OverlayMeshInstance2D.Mesh = st.Commit();
+
+        return Mathf.Abs(Mathf.Abs(total) - 1f) < 0.1f;
+    }
+
+    private void EmitPoleCapTile(SurfaceTool st, int tileIndex, Color color, Vector2 mapSize)
+    {
+        Vector3[] pts = _hexasphere.GetTilePoints(tileIndex);
+        Vector3 centerPos = _hexasphere.GetTileCenter(tileIndex);
+        int n = pts.Length;
+
+        float poleV = centerPos.Y > 0 ? 0f : 1f;
+
+        var ringUv = new Vector2[n];
+        for (int i = 0; i < n; i++)
+            ringUv[i] = HexasphereUvProjector.CalculateUv(pts[i]);
+
+        int[] order = new int[n];
+        for (int i = 0; i < n; i++) order[i] = i;
+        System.Array.Sort(order, (a, b) => ringUv[a].X.CompareTo(ringUv[b].X));
+
+        for (int k = 0; k < n; k++)
+        {
+            int i0 = order[k];
+            int i1 = order[(k + 1) % n];
+
+            float u0 = ringUv[i0].X, v0 = ringUv[i0].Y;
+            float u1 = ringUv[i1].X, v1 = ringUv[i1].Y;
+            if (k == n - 1) u1 += 1f;
+
+            EmitPoleQuad(st, u0, v0, u1, v1, poleV, 0f, mapSize, color, tileIndex);
+            if (u0 < 0f || u1 < 0f) EmitPoleQuad(st, u0, v0, u1, v1, poleV, 1f, mapSize, color, tileIndex);
+            if (u0 > 1f || u1 > 1f) EmitPoleQuad(st, u0, v0, u1, v1, poleV, -1f, mapSize, color, tileIndex);
+        }
+    }
+
+    private void EmitPoleQuad(SurfaceTool st, float u0, float v0, float u1, float v1, float poleV, float shift, Vector2 mapSize, Color color, int tileIndex)
+    {
+        var p0 = UvToScreen(new Vector2(u0 + shift, v0), mapSize);
+        var p1 = UvToScreen(new Vector2(u1 + shift, v1), mapSize);
+        var pole0 = UvToScreen(new Vector2(u0 + shift, poleV), mapSize);
+        var pole1 = UvToScreen(new Vector2(u1 + shift, poleV), mapSize);
+
+        st.SetColor(color); st.AddVertex(new Vector3(p0.X, p0.Y, 0));
+        st.SetColor(color); st.AddVertex(new Vector3(p1.X, p1.Y, 0));
+        st.SetColor(color); st.AddVertex(new Vector3(pole1.X, pole1.Y, 0));
+        _hitTris.Add(new HitTri { TileIndex = tileIndex, A = p0, B = p1, C = pole1 });
+
+        st.SetColor(color); st.AddVertex(new Vector3(p0.X, p0.Y, 0));
+        st.SetColor(color); st.AddVertex(new Vector3(pole1.X, pole1.Y, 0));
+        st.SetColor(color); st.AddVertex(new Vector3(pole0.X, pole0.Y, 0));
+        _hitTris.Add(new HitTri { TileIndex = tileIndex, A = p0, B = pole1, C = pole0 });
     }
 
     public override void _UnhandledInput(InputEvent @event)
