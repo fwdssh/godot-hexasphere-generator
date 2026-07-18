@@ -535,6 +535,11 @@ virtual protected void OnShaderReady()
                 hex.color = colors[i];
         }
         VisualController.DrawColors(_cellDatas);
+        
+        // Update _tileColors for UV projector (create new array to trigger rebuild)
+        _tileColors = new Color[_cellDatas.Length];
+        for (int i = 0; i < count; i++)
+            _tileColors[i] = colors[i];
     }
 
     public Color GetTileColor(int tileIndex)

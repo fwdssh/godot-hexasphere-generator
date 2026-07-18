@@ -244,21 +244,17 @@ public partial class HexasphereProjectorController : Node2D
         for (int i = 0; i < uvs.Length; i++)
             uvs[i].X += HexasphereUvProjector.GetSeamOffset(uvs[i].X, refU);
 
-        float minU = float.MaxValue, maxU = float.MinValue;
-        for (int i = 0; i < uvs.Length; i++)
-        {
-            if (uvs[i].X < minU) minU = uvs[i].X;
-            if (uvs[i].X > maxU) maxU = uvs[i].X;
-        }
-
-
-
         return uvs;
     }
 
     private Vector2 UvToScreen(Vector2 uv, Vector2 mapSize)
     {
-        return new Vector2(uv.X * mapSize.X, uv.Y * mapSize.Y);
+        // Округляем до целых пикселей, чтобы математически идентичные,
+        // но пострадавшие от float-погрешности вершины слиплись в одну точку для GPU.
+        float px = Mathf.Round(uv.X * mapSize.X);
+        float py = Mathf.Round(uv.Y * mapSize.Y);
+        
+        return new Vector2(px, py);
     }
 
     private void BuildSpatialGrid()
