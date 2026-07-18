@@ -15,7 +15,7 @@ func _process(delta: float):
 	global_position.x = cos(_orbit_angle) * orbit_radius
 	global_position.z = sin(_orbit_angle) * orbit_radius
 	global_position.y = 0.0
-	# Реалистичный резонанс 3:2 (скорость вращения строго в 1.5 раза быстрее орбитальной)
+	# Realistic 3:2 resonance (rotation speed 1.5x orbital speed)
 	sphere.rotate_y(orbit_speed * 1.5 * delta)
 
 func _on_planet_generated(tile_count: int):

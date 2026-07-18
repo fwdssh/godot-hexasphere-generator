@@ -1,48 +1,76 @@
 using Godot;
-using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Godot.Hexasphere;
+/// <summary>
+/// Main node for generating and interacting with a hexagonal sphere (hexasphere).
+/// Handles planet generation, tile selection/hover, UV projection, and input routing.
+/// </summary>
 public partial class HexasphereNode : Node3D
 {
+    /// <summary>
+    /// Emitted when a tile is clicked. Provides the tile index and world-space hit position.
+    /// </summary>
     [Signal] public delegate void TileClickedEventHandler(int tileIndex, Vector3 worldPosition);
+    /// <summary>
+    /// Emitted when the hovered tile changes. Provides the tile index (-1 if none).
+    /// </summary>
     [Signal] public delegate void TileHoveredEventHandler(int tileIndex);
+    /// <summary>
+    /// Emitted when the currently selected tile is deselected.
+    /// </summary>
     [Signal] public delegate void TileDeselectedEventHandler();
+    /// <summary>
+    /// Emitted when the planet generation completes. Provides the total number of tiles.
+    /// </summary>
     [Signal] public delegate void PlanetGeneratedEventHandler(int tileCount);
 
 
 
 
     [ExportGroup("Geometry")]
+    /// <summary>The radius of the sphere in world units.</summary>
     [Export] public float PlanetRadius = 20;
+    /// <summary>Number of icosahedron subdivisions. Higher values produce more tiles.</summary>
     [Export] public int SubDivision = 20;
+    /// <summary>Seed for the random color generator. Use -1 for random seed.</summary>
     [Export] public int GenerationSeed = -1;
 
 
     [ExportGroup("Interaction")]
 
+    /// <summary>If true, tiles can be clicked to select them.</summary>
     [Export] public bool IsClickEnabled = true;
+    /// <summary>If true, tiles emit hover events when the mouse moves over them.</summary>
     [Export] public bool IsHoverEnabled = true;
 
 
 
     [ExportGroup("Visual")]
+    /// <summary>Relative size of each hexagonal tile (range 0.1–1.0).</summary>
     [Export(PropertyHint.Range, "0.1, 1.0")] public float HexSize = 1f;
+    /// <summary>If true, the planet material uses emissive rendering.</summary>
     [Export] public bool IsEmissive = false;
 
 
+    /// <summary>If true, the selected tile is highlighted with ClickColor.</summary>
     [Export] public bool IsClickVisualEnabled = true;
+    /// <summary>Color used to highlight the selected tile.</summary>
     [Export] public Color ClickColor = Colors.Black;
 
 
+    /// <summary>If true, the hovered tile is highlighted with HoverColor.</summary>
     [Export] public bool IsHoverVisualEnabled = true;
+    /// <summary>Color used to highlight the hovered tile.</summary>
     [Export] public Color HoverColor = Colors.Red;
 
 
 
     [ExportGroup("Borders")]
+    /// <summary>If true, tile borders are rendered.</summary>
     [Export] public bool IsBordering = true;
     private Color _borderColor = Colors.White;
+    /// <summary>Color of the tile borders.</summary>
     [Export] public Color BorderColor
     {
         get => _borderColor;
@@ -55,10 +83,13 @@ public partial class HexasphereNode : Node3D
 
 
     [ExportGroup("Shaders")]
+    /// <summary>Shader used for rendering tile colors.</summary>
     [Export] public Shader ColorsShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_colors.gdshader");
+    /// <summary>Shader used for rendering tile borders.</summary>
     [Export] public Shader BordersShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_borders.gdshader");
 
     [ExportGroup("UV Projector")]
+    /// <summary>NodePath to the HexasphereProjectorController used for UV map projection.</summary>
     [Export] public NodePath UvProjectorPath;
     private HexasphereProjectorController UvProjector;
 
@@ -78,7 +109,9 @@ public partial class HexasphereNode : Node3D
     private float _bucketScale = 5f;
     private Dictionary<Vector3I, List<int>> _spatialBuckets;
 
+    /// <summary>Returns true once the planet has been fully generated and is ready for interaction.</summary>
     public bool IsReady => _planetReady;
+    /// <summary>Total number of tiles on the generated planet.</summary>
     public int TileCount => _cellDatas?.Length ?? 0;
 
 
@@ -117,11 +150,8 @@ public partial class HexasphereNode : Node3D
                 UvProjector.ProjectionClosed += OnProjectionClosed;
             }
 
-            // Check CanvasLayer
-            var canvasLayer = UvProjector?.GetParentOrNull<CanvasLayer>();
         }
 
-        // Create NativeHexasphere on main thread (Godot RefCounted)
         var hexasphere = new NativeHexasphere();
         Task.Run(() =>
         {
@@ -197,7 +227,6 @@ virtual protected void OnShaderReady()
     VisualController.DrawColors(_cellDatas);
     VisualController.SetEmissive(IsEmissive);
 
-    // Extract colors for UV projector before disposing visual controller's reference
     if (_hexasphere != null && _cellDatas != null)
     {
         _tileColors = new Color[_cellDatas.Length];
@@ -209,6 +238,9 @@ virtual protected void OnShaderReady()
     EmitSignal(SignalName.PlanetGenerated, _cellDatas?.Length ?? 0);
 }
 
+    /// <summary>
+    /// Opens the UV map projection view. Disables the 3D camera and shows the 2D UV editor.
+    /// </summary>
     public virtual void OpenUvProjector()
 {
     if (UvProjector == null || !_planetReady) return;
@@ -220,16 +252,11 @@ virtual protected void OnShaderReady()
         return;
     }
 
-    // Check CanvasLayer visibility
-        var canvasLayer = UvProjector.GetParentOrNull<CanvasLayer>();
-
     UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
     UvProjector.Visible = true;
     UvProjector.ProcessMode = ProcessModeEnum.Always;
 
-    // Request UV projection through router (ensures single active)
     HexasphereInputRouter.RequestUvProjection(this);
-    // Disable camera through router (ensures no race)
     HexasphereInputRouter.EnterUvMode(camera3D);
 
     // Make UV camera current
@@ -442,6 +469,11 @@ virtual protected void OnShaderReady()
         return bestIndex;
     }
 
+    /// <summary>
+    /// Finds the tile index for a given world-space direction vector.
+    /// </summary>
+    /// <param name="worldDirection">World-space direction from the sphere center.</param>
+    /// <returns>The tile index, or -1 if no tile matches.</returns>
     public int FindTileByDirection(Vector3 worldDirection)
     {
         Vector3 localDir = (GlobalTransform.Basis.Inverse() * worldDirection).Normalized();
@@ -509,7 +541,9 @@ virtual protected void OnShaderReady()
         }
     }
 
+    /// <summary>Returns the currently selected tile index, or -1 if none selected.</summary>
     public int GetSelectedTileIndex() => _selectedTileIndex;
+    /// <summary>Returns the currently hovered tile index, or -1 if none hovered.</summary>
     public int GetHoveredTileIndex() => _hoveredTileIndex;
 
     /// <summary>
@@ -525,6 +559,10 @@ virtual protected void OnShaderReady()
         }
     }
 
+    /// <summary>
+    /// Sets the color of every tile at once. Also rebuilds the cached color array for the UV projector.
+    /// </summary>
+    /// <param name="colors">Array of colors indexed by tile index.</param>
     public void SetAllTileColors(Color[] colors)
     {
         if (_cellDatas == null) return;
@@ -542,19 +580,35 @@ virtual protected void OnShaderReady()
             _tileColors[i] = colors[i];
     }
 
+    /// <summary>
+    /// Gets the current color of a specific tile.
+    /// </summary>
+    /// <param name="tileIndex">The tile index.</param>
+    /// <returns>The tile color, or Colors.Black if unavailable.</returns>
     public Color GetTileColor(int tileIndex)
     {
         if (_cellDatas == null || tileIndex < 0 || tileIndex >= _cellDatas.Length) return Colors.Black;
         return VisualController.GetColor(_cellDatas[tileIndex]);
     }
 
+    /// <summary>Returns the total number of tiles, or 0 if not yet generated.</summary>
     public int GetTileCount() => _cellDatas?.Length ?? 0;
 
+    /// <summary>
+    /// Gets the center position of a specific tile in local space.
+    /// </summary>
+    /// <param name="tileIndex">The tile index.</param>
+    /// <returns>The center position, or Vector3.Zero if unavailable.</returns>
     public Vector3 GetTileCenter(int tileIndex)
     {
         return _hexasphere?.GetTileCenter(tileIndex) ?? Vector3.Zero;
     }
 
+    /// <summary>
+    /// Gets the vertex positions of a specific tile in local space.
+    /// </summary>
+    /// <param name="tileIndex">The tile index.</param>
+    /// <returns>Array of vertex positions, or empty array if unavailable.</returns>
     public Vector3[] GetTilePoints(int tileIndex)
     {
         return _hexasphere?.GetTilePoints(tileIndex) ?? System.Array.Empty<Vector3>();

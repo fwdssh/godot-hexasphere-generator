@@ -1,6 +1,5 @@
 #include "point.h"
 #include "face.h"
-#include <algorithm>
 #include <cmath>
 #include <sstream>
 

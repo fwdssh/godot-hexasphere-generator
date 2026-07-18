@@ -18,19 +18,26 @@ public static class HexasphereInputRouter
     private static HexasphereNode _cachedWinner;
     private static float _cachedHitDistance;
 
+    /// <summary>
+    /// Registers a HexasphereNode for input arbitration.
+    /// </summary>
+    /// <param name="sphere">The sphere node to register.</param>
     public static void Register(HexasphereNode sphere)
     {
         if (!_registeredSpheres.Contains(sphere))
             _registeredSpheres.Add(sphere);
     }
 
+    /// <summary>
+    /// Unregisters a HexasphereNode. If it owns the UV projection, the projector is closed as well.
+    /// </summary>
+    /// <param name="sphere">The sphere node to unregister.</param>
     public static void Unregister(HexasphereNode sphere)
     {
         _registeredSpheres.Remove(sphere);
         if (_uvProjectionOwner == sphere)
         {
-            // Delegate to the sphere's own close path — hides the projector UI,
-            // exits UV mode (camera), and clears router ownership, all in one place.
+            // Delegate to the sphere's own close path — hides the projector UI
             sphere.CloseUvProjectorFromRouter();
         }
     }
@@ -102,6 +109,10 @@ public static class HexasphereInputRouter
         return true;
     }
 
+    /// <summary>
+    /// Called when a UV projection is closed. Clears the UV owner reference.
+    /// </summary>
+    /// <param name="sphere">The sphere that owned the projection, or null if called from the projector directly.</param>
     public static void OnUvProjectionClosed(HexasphereNode sphere)
     {
         // If sphere is null (called from projector directly), always clear
@@ -110,6 +121,7 @@ public static class HexasphereInputRouter
             _uvProjectionOwner = null;
     }
 
+    /// <summary>Returns true if a UV projection is currently open.</summary>
     public static bool IsUvProjectionOpen => _uvProjectionOwner != null;
 
     /// <summary>

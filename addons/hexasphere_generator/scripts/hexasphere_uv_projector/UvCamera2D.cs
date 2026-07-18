@@ -1,10 +1,18 @@
 using Godot;
 
+/// <summary>
+/// Camera2D controller for the UV projection view. Supports pan via right-click drag
+/// and zoom via mouse wheel, with configurable zoom limits and smooth interpolation.
+/// </summary>
 public partial class UvCamera2D : Camera2D
 {
+    /// <summary>Target zoom level for smooth interpolation.</summary>
     [Export] public float TargetZoom = 1.0f;
+    /// <summary>Multiplier applied per zoom step (wheel tick).</summary>
     [Export] public float ZoomFactor = 1.1f;
+    /// <summary>Minimum allowed zoom level.</summary>
     [Export] public float MinZoom = 0.1f;
+    /// <summary>Maximum allowed zoom level.</summary>
     [Export] public float MaxZoom = 3.0f;
 
     private bool _isDragging = false;
@@ -60,6 +68,10 @@ public partial class UvCamera2D : Camera2D
         }
     }
 
+    /// <summary>
+    /// Sets the panning limits relative to the map center.
+    /// </summary>
+    /// <param name="mapSize">The size of the UV map, used to calculate bounds.</param>
     public virtual void SetPanLimits(Vector2 mapSize)
     {
         _panCenter = mapSize * 0.5f;

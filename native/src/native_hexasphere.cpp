@@ -5,7 +5,14 @@
 #include "face.h"
 #include <godot_cpp/classes/array_mesh.hpp>
 
+/// <summary>
+/// Default constructor. Call generate() to initialize the sphere data.
+/// </summary>
 NativeHexasphere::NativeHexasphere() = default;
+
+/// <summary>
+/// Destructor. The internal Hexasphere instance is cleaned up automatically.
+/// </summary>
 NativeHexasphere::~NativeHexasphere() = default;
 
 void NativeHexasphere::_bind_methods()
@@ -21,16 +28,26 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("build_mesh"), &NativeHexasphere::build_mesh);
 }
 
+/// <summary>
+/// Generates the hexagonal sphere. Creates the internal Hexasphere instance with the given parameters.
+/// </summary>
 void NativeHexasphere::generate(float radius, int divisions, float hexSize)
 {
     _hexasphere = std::make_unique<Hexasphere>(radius, divisions, hexSize);
 }
 
+/// <summary>
+/// Returns the number of tiles, or 0 if no sphere has been generated.
+/// </summary>
 int NativeHexasphere::get_tile_count() const
 {
     return _hexasphere ? _hexasphere->get_tile_count() : 0;
 }
 
+/// <summary>
+/// Returns the world-space center of the tile at the given index.
+/// Returns Vector3() if the index is out of range or no sphere has been generated.
+/// </summary>
 Vector3 NativeHexasphere::get_tile_center(int tile_idx) const
 {
     if (!_hexasphere || tile_idx < 0 || tile_idx >= _hexasphere->get_tile_count())
@@ -38,6 +55,9 @@ Vector3 NativeHexasphere::get_tile_center(int tile_idx) const
     return _hexasphere->get_tiles()[tile_idx]->get_center()->get_position();
 }
 
+/// <summary>
+/// Returns an array of all tile center positions. Each entry corresponds to one tile in index order.
+/// </summary>
 PackedVector3Array NativeHexasphere::get_all_tile_centers() const
 {
     if (!_hexasphere)
@@ -54,6 +74,10 @@ PackedVector3Array NativeHexasphere::get_all_tile_centers() const
     return result;
 }
 
+/// <summary>
+/// Returns the boundary vertex positions for the tile at the given index.
+/// The points form a closed polygon around the tile.
+/// </summary>
 PackedVector3Array NativeHexasphere::get_tile_points(int tile_idx) const
 {
     if (!_hexasphere || tile_idx < 0 || tile_idx >= _hexasphere->get_tile_count())
@@ -71,6 +95,10 @@ PackedVector3Array NativeHexasphere::get_tile_points(int tile_idx) const
     return result;
 }
 
+/// <summary>
+/// Returns triangle face indices for the tile at the given index.
+/// Indices are local to this tile's boundary points. Every three consecutive values form one triangle.
+/// </summary>
 PackedInt32Array NativeHexasphere::get_tile_faces(int tile_idx) const
 {
     if (!_hexasphere || tile_idx < 0 || tile_idx >= _hexasphere->get_tile_count())
@@ -95,6 +123,10 @@ PackedInt32Array NativeHexasphere::get_tile_faces(int tile_idx) const
     return result;
 }
 
+/// <summary>
+/// Returns per-tile build data: vertex positions, face indices, point counts, and face vertex counts.
+/// Useful for custom mesh construction on the C# side.
+/// </summary>
 Dictionary NativeHexasphere::get_build_data() const
 {
     Dictionary result;
@@ -163,6 +195,10 @@ Dictionary NativeHexasphere::get_build_data() const
     return result;
 }
 
+/// <summary>
+/// Returns per-tile border line data for wireframe or outline rendering.
+/// Each tile's boundary is represented as line segments (pairs of consecutive positions).
+/// </summary>
 Dictionary NativeHexasphere::get_border_data() const
 {
     Dictionary result;
@@ -208,6 +244,12 @@ Dictionary NativeHexasphere::get_border_data() const
     return result;
 }
 
+/// <summary>
+/// Builds and returns a complete ArrayMesh for the entire sphere, with vertex positions,
+/// normals, and UV2 data (tile index in UV2.x). Also returns per-tile vertex counts and indices
+/// for tile-specific processing on the C# side.
+/// Dictionary keys: "mesh" (ArrayMesh), "tile_vertex_counts", "tile_vertex_indices".
+/// </summary>
 Dictionary NativeHexasphere::build_mesh() const
 {
     Dictionary result;

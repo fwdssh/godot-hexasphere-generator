@@ -3,6 +3,10 @@ using Godot.Collections;
 using System;
 using System.Threading;
 
+/// <summary>
+/// Wrapper around the native GDExtension hexasphere implementation.
+/// Provides thread-safe access to mesh generation and tile geometry data.
+/// </summary>
 public class NativeHexasphere : IDisposable
 {
     private GodotObject _native;
@@ -19,6 +23,10 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodBuildMesh = "build_mesh";
     private static readonly StringName MethodGetAllTileCenters = "get_all_tile_centers";
 
+    /// <summary>
+    /// Instantiates the native GDExtension hexasphere object.
+    /// Throws if the NativeHexasphere GDExtension is not available.
+    /// </summary>
     public NativeHexasphere()
     {
         if (!ClassDB.ClassExists("NativeHexasphere"))
@@ -28,6 +36,9 @@ public class NativeHexasphere : IDisposable
         _native = ClassDB.Instantiate("NativeHexasphere").AsGodotObject();
     }
 
+    /// <summary>
+    /// Releases the native GDExtension resources. Safe to call multiple times.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
@@ -56,6 +67,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Returns the total number of tiles on the generated sphere.</summary>
     public virtual int GetTileCount()
     {
         _semaphore.Wait();
@@ -69,6 +81,8 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Gets the center position of a specific tile in local space.</summary>
+    /// <param name="tileIdx">The tile index.</param>
     public virtual Vector3 GetTileCenter(int tileIdx)
     {
         _semaphore.Wait();
@@ -82,6 +96,8 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Gets the vertex positions of a specific tile in local space.</summary>
+    /// <param name="tileIdx">The tile index.</param>
     public virtual Vector3[] GetTilePoints(int tileIdx)
     {
         _semaphore.Wait();
@@ -95,6 +111,8 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Gets the face vertex indices of a specific tile.</summary>
+    /// <param name="tileIdx">The tile index.</param>
     public virtual int[] GetTileFaces(int tileIdx)
     {
         _semaphore.Wait();
@@ -108,6 +126,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Returns the mesh build data dictionary from the native implementation.</summary>
     public virtual Dictionary GetBuildData()
     {
         _semaphore.Wait();
@@ -121,6 +140,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Returns the border data dictionary (positions and tile line counts) from the native implementation.</summary>
     public virtual Dictionary GetBorderData()
     {
         _semaphore.Wait();
@@ -134,6 +154,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Builds and returns the final ArrayMesh from the generated data.</summary>
     public virtual Dictionary BuildMesh()
     {
         _semaphore.Wait();
@@ -147,6 +168,7 @@ public class NativeHexasphere : IDisposable
         }
     }
 
+    /// <summary>Returns the center positions of all tiles in a single array.</summary>
     public virtual Vector3[] GetAllTileCenters()
     {
         _semaphore.Wait();

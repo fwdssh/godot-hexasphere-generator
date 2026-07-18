@@ -19,7 +19,7 @@ Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
         throw std::invalid_argument("Radius must be positive");
 
     _pointEpsilon = 1e-5f * _radius;
-    _gridScale = 1e5f / _radius; // cell_width = epsilon, ±1-cell search is sufficient
+    _gridScale = 1e5f / _radius;
 
     int estimatedPoints = 10 * divisions * divisions + 2;
     _points.reserve(estimatedPoints);
@@ -144,18 +144,15 @@ void Hexasphere::construct_tiles()
     std::vector<int> indices(n);
     std::iota(indices.begin(), indices.end(), 0);
 
-    // Parallel tile creation — each Tile reads only from its Point (read-only)
     std::for_each(std::execution::par, indices.begin(), indices.end(), [this](int i) {
         _tiles[i] = std::make_unique<Tile>(_points[i].get(), _radius, _hexSize);
     });
 
-    // Build tile map (sequential — unordered_map is not thread-safe for writes)
     std::unordered_map<int, Tile *> tile_map;
     tile_map.reserve(n);
     for (const auto &tile : _tiles)
         tile_map[tile->get_center()->get_id()] = tile.get();
 
-    // Parallel neighbour resolution — each Tile writes only to its own _neighbours
     std::for_each(std::execution::par, indices.begin(), indices.end(), [this, &tile_map](int i) {
         _tiles[i]->resolve_neighbour_tiles_fast(tile_map);
     });

@@ -1,12 +1,20 @@
 using Godot;
 using System.Collections.Generic;
 
+/// <summary>
+/// Renders the borders between adjacent hexagonal tiles using a line mesh.
+/// Shares the tile color texture with the planet material for consistent coloring.
+/// </summary>
 public class PlanetBorderRenderer
 {
     private MeshInstance3D _bordersMeshInstance;
     private ShaderMaterial _borderMaterial;
     private Color _borderColor;
 
+    /// <summary>
+    /// Creates a new border renderer and adds the border mesh as a child of the specified parent node.
+    /// </summary>
+    /// <param name="parent">The parent node to attach the border mesh to.</param>
     public PlanetBorderRenderer(Node3D parent)
     {
         _bordersMeshInstance      = new MeshInstance3D();
@@ -14,8 +22,16 @@ public class PlanetBorderRenderer
         parent.AddChild(_bordersMeshInstance);
     }
 
+    /// <summary>Shows or hides the border mesh.</summary>
+    /// <param name="visible">True to show borders, false to hide.</param>
     public virtual void SetVisible(bool visible) => _bordersMeshInstance.Visible = visible;
 
+    /// <summary>
+    /// Builds the static border line mesh by deduplicating shared edges between adjacent tiles.
+    /// </summary>
+    /// <param name="hexasphere">The native hexasphere providing border data.</param>
+    /// <param name="planetMaterial">The planet material to share texture parameters from.</param>
+    /// <param name="borderShader">The shader to use for border rendering.</param>
     public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial, Shader borderShader)
     {
         var data = hexasphere.GetBorderData();
@@ -82,11 +98,17 @@ public class PlanetBorderRenderer
         _bordersMeshInstance.MaterialOverride = _borderMaterial;
     }
 
+    /// <summary>
+    /// Updates the border shader with the currently selected tile index for highlighting.
+    /// </summary>
+    /// <param name="selectedIdx">The selected tile index, or -1 for none.</param>
     public virtual void UpdateBorders(int selectedIdx = -1)
     {
         _borderMaterial?.SetShaderParameter("selected_idx", selectedIdx);
     }
 
+    /// <summary>Sets the color used for rendering tile borders.</summary>
+    /// <param name="color">The new border color.</param>
     public virtual void SetBorderColor(Color color)
     {
         _borderColor = color;

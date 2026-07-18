@@ -2,7 +2,7 @@
 
 A procedural hexagonal sphere generator for Godot 4. Generates a spherical grid of **hexagons with exactly 12 pentagons**.
 
-The math core is written in **C++ (GDExtension)** for maximum performance, with a thin C# wrapper for seamless integration.
+The math core is written in **C++ (GDExtension)** for maximum performance, with a C# wrapper for seamless integration.
 
 Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexasphere).
 
@@ -13,19 +13,19 @@ Inspired by [Em3rgencyLT's Unity Hexasphere](https://github.com/Em3rgencyLT/Hexa
 
 - **Hexagonal sphere** — procedural generation with configurable subdivision
 - **Fullerene topology** — exactly 12 pentagons, rest are hexagons
-- **High performance** — C++ GDExtension core with pure C# fallback 
+- **High performance** — C++ GDExtension core with thread-safe C# wrapper
 - **Hexasphere Node** — `HexasphereNode` available in **Add Node**
 - **Per-tile coloring** — custom colors via shader + `ImageTexture` (no per-tile materials)
 - **Click & hover** — `TileClicked` / `TileHovered` signals with raycast hit detection
 - **Custom tile data** — implement `ICellData` for biomes, heights, colors per tile
-- **Cross-platform** — Windows, Linux (pre-built)
+- **UV projection** — 2D map view with pan/zoom and tile selection
+- **Cross-platform** — Windows, Linux (pre-built binaries included)
 
 ## Installation
 
 1. Copy `addons/hexasphere_generator/` into your project's `addons/` folder.
 2. Enable the plugin in **Project → Project Settings → Plugins**.
-3. Pre-built `hexasphere.dll` for **Windows**  and `libhexasphere.so` for **Linux** is included in `addons/hexasphere_generator/bin/`.
-
+3. Pre-built `hexasphere.dll` for **Windows** and `libhexasphere.so` for **Linux** are included in `addons/hexasphere_generator/bin/`.
 
 ## Quick Start
 
@@ -76,25 +76,22 @@ public partial class MyPlanet : Node3D
         var mi = new MeshInstance3D();
         mi.Mesh = mesh;
         AddChild(mi);
+        
+        hex.Dispose();
     }
 }
 ```
 
 ## Signals
 
-`HexasphereNode` emits the following signals for mouse interaction:
+`HexasphereNode` emits the following signals:
 
 | Signal | Arguments | Description |
 |---|---|---|
 | `TileClicked` | `(int tileIndex, Vector3 worldPosition)` | A tile was clicked |
-| `TileHovered` | `(int tileIndex)` | Mouse hovers over a tile |
+| `TileHovered` | `(int tileIndex)` | Mouse hovers over a tile (-1 if none) |
 | `TileDeselected` | — | Selection was cleared (clicked empty space) |
-
-`HexasphereVisualController` emits:
-
-| Signal | Arguments | Description |
-|---|---|---|
-| `ShaderReady` | — | The internal shader is initialized and ready for rendering |
+| `PlanetGenerated` | `(int tileCount)` | Planet generation completed |
 
 ```csharp
 public partial class MyPlanet : HexasphereNode
@@ -104,6 +101,7 @@ public partial class MyPlanet : HexasphereNode
         base._Ready();
         TileClicked += OnTileClicked;
         TileHovered += OnTileHovered;
+        PlanetGenerated += OnPlanetGenerated;
     }
 
     private void OnTileClicked(int index, Vector3 position)
@@ -114,6 +112,11 @@ public partial class MyPlanet : HexasphereNode
     private void OnTileHovered(int index)
     {
         GD.Print($"Hovering over tile {index}");
+    }
+
+    private void OnPlanetGenerated(int tileCount)
+    {
+        GD.Print($"Planet generated with {tileCount} tiles");
     }
 }
 ```
@@ -159,7 +162,8 @@ public partial class MyPlanet : HexasphereNode
     }
 }
 ```
-### Overridable Methods
+
+## Overridable Methods
 
 Key virtual methods in `HexasphereNode`:
 
@@ -175,38 +179,77 @@ Key virtual methods in `HexasphereVisualController`:
 
 | Method | Purpose |
 |---|---|
-| `GetColor(ICellData cellData)` | Return a color for a given tile (see example above) |
+| `GetColor(ICellData cellData)` | Return a color for a given tile |
 | `SetRoughness(float value)` | Set material roughness |
 | `Draw(ICellData[] cellDatas, ...)` | Full redraw of all tiles |
 | `InitShaderMaterial()` | Initialize the shader material |
-| `DisposeHexasphere()` | Clean up resources |
+
+## Export Properties
+
+`HexasphereNode` exposes the following properties in the Inspector:
+
+### Geometry
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `PlanetRadius` | `float` | `20` | Radius of the sphere in world units |
+| `SubDivision` | `int` | `20` | Number of icosahedron subdivisions (higher = more tiles) |
+| `GenerationSeed` | `int` | `-1` | Seed for random color generator (-1 = random) |
+
+### Interaction
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `IsClickEnabled` | `bool` | `true` | Enable tile clicking |
+| `IsHoverEnabled` | `bool` | `true` | Enable tile hover detection |
+
+### Visual
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `HexSize` | `float` | `1.0` | Relative size of each hexagonal tile (0.1–1.0) |
+| `IsEmissive` | `bool` | `false` | Use emissive rendering |
+| `IsClickVisualEnabled` | `bool` | `true` | Highlight selected tile |
+| `ClickColor` | `Color` | `Black` | Color for selected tile |
+| `IsHoverVisualEnabled` | `bool` | `true` | Highlight hovered tile |
+| `HoverColor` | `Color` | `Red` | Color for hovered tile |
+
+### Borders
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `IsBordering` | `bool` | `true` | Render tile borders |
+| `BorderColor` | `Color` | `White` | Color of tile borders |
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│  C++ (native/src/)                           │
-│  Point → Face → Tile → Hexasphere            │
-│         ↕                                    │
-│  NativeHexasphere (RefCounted bridge)        │
-│  - generate()                                │
-│  - build_mesh()    → ArrayMesh               │
-│  - get_border_data() → Dictionary            │
-│  - get_build_data()  → Dictionary            │
-└──────────────┬───────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  C++ (native/src/)                                   │
+│  Point → Face → Tile → Hexasphere                    │
+│         ↕                                            │
+│  NativeHexasphere (RefCounted bridge)                │
+│  - generate()                                        │
+│  - build_mesh()         → Dictionary (ArrayMesh)     │
+│  - get_border_data()    → Dictionary                 │
+│  - get_tile_center()    → Vector3                    │
+│  - get_tile_points()    → Vector3[]                  │
+│  - get_all_tile_centers() → Vector3[]                │
+└──────────────┬───────────────────────────────────────┘
                │ GDExtension
-┌──────────────▼───────────────────────────────┐
-│  C# (addons/hexasphere_node/)                │
-│  NativeHexasphere.cs        — thin wrapper   │
-│  HexasphereNode.cs          — main node      │
-│  HexasphereVisualController — visual node    │
-│  PlanetBorderRenderer       — border lines   │
-└──────────────────────────────────────────────┘
+┌──────────────▼───────────────────────────────────────┐
+│  C# (addons/hexasphere_generator/scripts/)           │
+│  hexasphere_node/                                    │
+│    NativeHexasphere.cs          — thread-safe wrapper│
+│    HexasphereNode.cs            — main node          │
+│    HexasphereVisualController   — visual rendering   │
+│    PlanetBorderRenderer         — border lines       │
+│    HexasphereInputRouter        — input arbitration  │
+│  hexasphere_uv_projector/                            │
+│    HexasphereProjectorController — 2D UV map view    │
+│    UvCamera2D                    — pan/zoom camera   │
+└──────────────────────────────────────────────────────┘
 ```
 
 - **C++ layer** — pure math: icosahedron subdivision, tile boundary computation, mesh array generation. No Godot dependencies in the core classes.
 - **NativeHexasphere** — a `RefCounted` registered with GDExtension. Exposes `generate()`, `build_mesh()`, `get_border_data()`, etc.
-- **C# layer** — orchestration, Godot node management, shader material setup, border rendering.
+- **C# layer** — orchestration, Godot node management, shader material setup, border rendering, input routing, UV projection.
 
 ## Building the Native Library
 
@@ -227,16 +270,6 @@ The binary is output to `addons/hexasphere_generator/bin/`.
 
 Requires a working C++17 compiler, Python 3, and SCons.
 
-## Benchmark
-| Div | Tiles | C++ Gen | C# Gen | C++ Mesh | C# Mesh | C++ All | C# All |
-|-----|------:|--------:|-------:|---------:|--------:|--------:|-------:|
-|   5 |   252 |   0,6ms |  2,1ms |    0,4ms |   0,7ms |   1,1ms |  2,8ms |
-|  10 |  1002 |   2,3ms |  7,5ms |    1,0ms |   3,0ms |   3,3ms | 10,5ms |
-|  20 |  4002 |   8,8ms | 36,5ms |    4,3ms |  17,4ms |  13,1ms | 53,9ms |
-|  30 |  9002 |  18,7ms | 66,5ms |   10,3ms |  46,1ms |  28,9ms |112,6ms |
-|  50 | 25002 |  55,4ms |187,1ms |   31,5ms | 122,6ms |  86,9ms |309,7ms |
-|  75 | 56252 | 128,0ms |447,4ms |   72,8ms | 255,4ms | 200,8ms |702,7ms |
-| 100 |100002 | 253,0ms |760,7ms |  127,0ms | 490,1ms | 380,1ms |1250,7ms|
+## License
 
-
-
+See [LICENSE](LICENSE) for details.

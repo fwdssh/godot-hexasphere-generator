@@ -22,6 +22,10 @@ struct Vector3iHash
     }
 };
 
+/// <summary>
+/// Core hexasphere engine: constructs an icosahedron, subdivides it, and generates
+/// hexagonal tiles on the sphere surface. Internal — use NativeHexasphere for the GDExtension API.
+/// </summary>
 class Hexasphere
 {
 private:
@@ -46,9 +50,19 @@ public:
     Hexasphere(const Hexasphere &) = delete;
     Hexasphere &operator=(const Hexasphere &) = delete;
 
+    /// <summary>
+    /// Returns a reference to the internal vector of all tiles.
+    /// </summary>
     const std::vector<std::unique_ptr<Tile>> &get_tiles() const { return _tiles; }
+
+    /// <summary>
+    /// Returns a reference to the internal vector of all points.
+    /// </summary>
     const std::vector<std::unique_ptr<Point>> &get_points() const { return _points; }
 
+    /// <summary>
+    /// Returns the total number of generated tiles.
+    /// </summary>
     int get_tile_count() const { return (int)_tiles.size(); }
 
 private:
