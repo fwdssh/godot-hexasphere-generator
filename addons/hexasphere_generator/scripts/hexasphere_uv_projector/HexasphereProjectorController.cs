@@ -251,15 +251,7 @@ public partial class HexasphereProjectorController : Node2D
             if (uvs[i].X > maxU) maxU = uvs[i].X;
         }
 
-        if (maxU - minU > 0.5f)
-        {
-            float shift = refU < (minU + maxU) * 0.5f ? 1f : -1f;
-            for (int i = 0; i < uvs.Length; i++)
-            {
-                if ((shift > 0f && uvs[i].X < refU) || (shift < 0f && uvs[i].X > refU))
-                    uvs[i].X += shift;
-            }
-        }
+
 
         return uvs;
     }
@@ -284,10 +276,10 @@ public partial class HexasphereProjectorController : Node2D
             float maxX = Mathf.Max(tri.A.X, Mathf.Max(tri.B.X, tri.C.X));
             float maxY = Mathf.Max(tri.A.Y, Mathf.Max(tri.B.Y, tri.C.Y));
 
-            int x0 = (int)(minX / _cellSize);
-            int y0 = (int)(minY / _cellSize);
-            int x1 = (int)(maxX / _cellSize);
-            int y1 = (int)(maxY / _cellSize);
+            int x0 = Mathf.FloorToInt(minX / _cellSize);
+            int y0 = Mathf.FloorToInt(minY / _cellSize);
+            int x1 = Mathf.FloorToInt(maxX / _cellSize);
+            int y1 = Mathf.FloorToInt(maxY / _cellSize);
 
             for (int gx = x0; gx <= x1; gx++)
             for (int gy = y0; gy <= y1; gy++)
@@ -302,8 +294,8 @@ public partial class HexasphereProjectorController : Node2D
 
     private int HitTest(Vector2 pos)
     {
-        int gx = (int)(pos.X / _cellSize);
-        int gy = (int)(pos.Y / _cellSize);
+        int gx = Mathf.FloorToInt(pos.X / _cellSize);
+        int gy = Mathf.FloorToInt(pos.Y / _cellSize);
 
         if (!_spatialGrid.TryGetValue((gx, gy), out var candidates))
             return -1;
@@ -518,7 +510,7 @@ public partial class HexasphereProjectorController : Node2D
 
         Vector2 pos = ToLocal(GetGlobalMousePosition());
 
-        if (pos.X < 0 || pos.X > _lastMapSize.X || pos.Y < 0 || pos.Y > _lastMapSize.Y)
+        if (pos.Y < 0 || pos.Y > _lastMapSize.Y)
             return;
 
         int hit = HitTest(pos);
