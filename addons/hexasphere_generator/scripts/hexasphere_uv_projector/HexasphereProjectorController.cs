@@ -236,30 +236,7 @@ public partial class HexasphereProjectorController : Node2D
             isPole[i + 1] = r > 0 && Mathf.Abs(pos.Y) / r > HexasphereUvProjector.PoleThreshold;
         }
 
-        // Replace unreliable pole vertices with the average of reliable neighbors,
-        // WITHOUT wrapping into [0,1) — otherwise the fixed vertex can end up
-        // on the opposite side of the seam from the rest of the tile.
-        for (int i = 0; i < uvs.Length; i++)
-        {
-            if (!isPole[i]) continue;
 
-            float sum = 0;
-            int count = 0;
-            float refPole = float.NaN;
-
-            for (int j = 0; j < uvs.Length; j++)
-            {
-                if (j == i || isPole[j]) continue;
-
-                if (float.IsNaN(refPole)) refPole = uvs[j].X;
-                float u = uvs[j].X + HexasphereUvProjector.GetSeamOffset(uvs[j].X, refPole);
-                sum += u;
-                count++;
-            }
-
-            if (count > 0)
-                uvs[i].X = sum / count;
-        }
 
         // Unwrap relative to center for ALL vertices, including fixed pole vertices —
         // otherwise they remain in a different longitude domain than the rest of the tile.
@@ -350,27 +327,34 @@ public partial class HexasphereProjectorController : Node2D
             return;
         }
 
-        Vector3[] pts = _hexasphere.GetTilePoints(selectedTile);
-        int n = pts.Length;
-        if (n < 3) return;
-
-        Vector2[] uvs = ComputeTileUvs(selectedTile);
-        for (int ci = 0; ci < uvs.Length; ci++)
-            uvs[ci] = new Vector2(uvs[ci].X, Mathf.Clamp(uvs[ci].Y, 0f, 1f));
-
-        float minU = float.MaxValue, maxU = float.MinValue;
-        for (int i = 0; i < uvs.Length; i++)
-        {
-            if (uvs[i].X < minU) minU = uvs[i].X;
-            if (uvs[i].X > maxU) maxU = uvs[i].X;
-        }
-
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
 
-        EmitOverlayTile(st, uvs, n, _lastMapSize, 0f);
-        if (minU < 0f) EmitOverlayTile(st, uvs, n, _lastMapSize, 1f);
-        if (maxU > 1f) EmitOverlayTile(st, uvs, n, _lastMapSize, -1f);
+        if (IsPoleCapTile(selectedTile))
+        {
+            EmitOverlayPoleCapTile(st, selectedTile, _lastMapSize);
+        }
+        else
+        {
+            Vector3[] pts = _hexasphere.GetTilePoints(selectedTile);
+            int n = pts.Length;
+            if (n < 3) return;
+
+            Vector2[] uvs = ComputeTileUvs(selectedTile);
+            for (int ci = 0; ci < uvs.Length; ci++)
+                uvs[ci] = new Vector2(uvs[ci].X, Mathf.Clamp(uvs[ci].Y, 0f, 1f));
+
+            float minU = float.MaxValue, maxU = float.MinValue;
+            for (int i = 0; i < uvs.Length; i++)
+            {
+                if (uvs[i].X < minU) minU = uvs[i].X;
+                if (uvs[i].X > maxU) maxU = uvs[i].X;
+            }
+
+            EmitOverlayTile(st, uvs, n, _lastMapSize, 0f);
+            if (minU < 0f) EmitOverlayTile(st, uvs, n, _lastMapSize, 1f);
+            if (maxU > 1f) EmitOverlayTile(st, uvs, n, _lastMapSize, -1f);
+        }
 
         if (OverlayMeshInstance2D.Mesh is ArrayMesh oldMesh)
             oldMesh.Dispose();
@@ -393,6 +377,53 @@ public partial class HexasphereProjectorController : Node2D
             st.SetColor(SelectionColor);
             st.AddVertex(new Vector3(c.X, c.Y, 0));
         }
+    }
+
+    private void EmitOverlayPoleCapTile(SurfaceTool st, int tileIndex, Vector2 mapSize)
+    {
+        Vector3[] pts = _hexasphere.GetTilePoints(tileIndex);
+        Vector3 centerPos = _hexasphere.GetTileCenter(tileIndex);
+        int n = pts.Length;
+
+        float poleV = centerPos.Y > 0 ? 0f : 1f;
+
+        var ringUv = new Vector2[n];
+        for (int i = 0; i < n; i++)
+            ringUv[i] = HexasphereUvProjector.CalculateUv(pts[i]);
+
+        int[] order = new int[n];
+        for (int i = 0; i < n; i++) order[i] = i;
+        System.Array.Sort(order, (a, b) => ringUv[a].X.CompareTo(ringUv[b].X));
+
+        for (int k = 0; k < n; k++)
+        {
+            int i0 = order[k];
+            int i1 = order[(k + 1) % n];
+
+            float u0 = ringUv[i0].X, v0 = ringUv[i0].Y;
+            float u1 = ringUv[i1].X, v1 = ringUv[i1].Y;
+            if (k == n - 1) u1 += 1f;
+
+            EmitOverlayPoleQuad(st, u0, v0, u1, v1, poleV, 0f, mapSize);
+            if (u0 < 0f || u1 < 0f) EmitOverlayPoleQuad(st, u0, v0, u1, v1, poleV, 1f, mapSize);
+            if (u0 > 1f || u1 > 1f) EmitOverlayPoleQuad(st, u0, v0, u1, v1, poleV, -1f, mapSize);
+        }
+    }
+
+    private void EmitOverlayPoleQuad(SurfaceTool st, float u0, float v0, float u1, float v1, float poleV, float shift, Vector2 mapSize)
+    {
+        var p0 = UvToScreen(new Vector2(u0 + shift, v0), mapSize);
+        var p1 = UvToScreen(new Vector2(u1 + shift, v1), mapSize);
+        var pole0 = UvToScreen(new Vector2(u0 + shift, poleV), mapSize);
+        var pole1 = UvToScreen(new Vector2(u1 + shift, poleV), mapSize);
+
+        st.SetColor(SelectionColor); st.AddVertex(new Vector3(p0.X, p0.Y, 0));
+        st.SetColor(SelectionColor); st.AddVertex(new Vector3(p1.X, p1.Y, 0));
+        st.SetColor(SelectionColor); st.AddVertex(new Vector3(pole1.X, pole1.Y, 0));
+
+        st.SetColor(SelectionColor); st.AddVertex(new Vector3(p0.X, p0.Y, 0));
+        st.SetColor(SelectionColor); st.AddVertex(new Vector3(pole1.X, pole1.Y, 0));
+        st.SetColor(SelectionColor); st.AddVertex(new Vector3(pole0.X, pole0.Y, 0));
     }
 
     private bool IsPoleCapTile(int tileIndex)

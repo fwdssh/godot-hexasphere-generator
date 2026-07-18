@@ -10,9 +10,14 @@ namespace Godot.Hexasphere
         {
             float longitude = Mathf.Atan2(position.X, position.Z);
             float radius = position.Length();
-            float latitude = Mathf.Asin(radius > 0 ? position.Y / radius : 0f);
+            float latitude = Mathf.Asin(radius > 0 ? Mathf.Clamp(position.Y / radius, -1f, 1f) : 0f);
 
             float u = (longitude + Mathf.Pi) / (2f * Mathf.Pi);
+
+            // Equirectangular projection: latitude maps linearly to v.
+            // v = 0 at the north pole, v = 1 at the south pole (matches the
+            // orientation the rest of the pipeline - UvToScreen, pole-cap
+            // fan rendering, etc. - already expects).
             float v = (latitude + (Mathf.Pi / 2f)) / Mathf.Pi;
             v = 1.0f - v;
 
