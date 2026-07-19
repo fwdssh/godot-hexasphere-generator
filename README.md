@@ -62,11 +62,6 @@ func _calculate_color(tile_center: Vector3) -> Color:
     return Color.from_hsv(hue, 0.8, 0.9)
 ```
 
-Key methods available from GDScript:
-- `GetTileCenter(tileIndex: int) -> Vector3` — get world position of a tile
-- `SetAllTileColors(colors: Array[Color])` — apply colors to all tiles
-- `PlanetGenerated` signal — emitted when generation completes with `tile_count`
-
 ### Via Script — C# (Simple)
 
 Use `HexasphereNode` as a child node and apply colors via signals:
