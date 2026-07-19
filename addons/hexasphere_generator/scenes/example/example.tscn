@@ -10,8 +10,6 @@
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 240.094)
 script = ExtResource("1_ejjd7")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=45944808]
-
 [node name="Hexasphere" type="Node3D" parent="." unique_id=798022267]
 script = ExtResource("2_t0nab")
 IsEmissive = true
