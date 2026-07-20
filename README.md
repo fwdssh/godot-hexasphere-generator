@@ -5,7 +5,7 @@ A procedural hexagonal sphere generator for Godot 4. Generates a spherical grid 
 The math core is written in **C++ (GDExtension)** for maximum performance, with a C# wrapper for seamless integration.
 
 ![Preview](preview.png)
-![Preview — UV projector](preview_projector.png)
+![Preview — UV projector](preview2.png)
 
 ## Features
 
