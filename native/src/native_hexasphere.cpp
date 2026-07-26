@@ -4,6 +4,7 @@
 #include "point.h"
 #include "face.h"
 #include <godot_cpp/classes/array_mesh.hpp>
+#include <unordered_map>
 
 /// <summary>
 /// Default constructor. Call generate() to initialize the sphere data.
@@ -26,6 +27,7 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("get_build_data"), &NativeHexasphere::get_build_data);
     ClassDB::bind_method(D_METHOD("get_border_data"), &NativeHexasphere::get_border_data);
     ClassDB::bind_method(D_METHOD("build_mesh"), &NativeHexasphere::build_mesh);
+    ClassDB::bind_method(D_METHOD("get_all_tile_neighbors"), &NativeHexasphere::get_all_tile_neighbors);
 }
 
 /// <summary>
@@ -327,5 +329,51 @@ Dictionary NativeHexasphere::build_mesh() const
     result["tile_vertex_counts"] = tileVertexCounts;
     result["tile_vertex_indices"] = allIndices;
 
+    return result;
+}
+
+Dictionary NativeHexasphere::get_all_tile_neighbors() const
+{
+    Dictionary result;
+    if (!_hexasphere || _hexasphere->get_tile_count() == 0)
+    {
+        result["neighbor_indices"] = PackedInt32Array();
+        result["offsets"] = PackedInt32Array();
+        return result;
+    }
+
+    const auto &tiles = _hexasphere->get_tiles();
+    int tileCount = _hexasphere->get_tile_count();
+
+    std::unordered_map<const Tile *, int> tileIndex;
+    tileIndex.reserve(tileCount);
+    for (int i = 0; i < tileCount; i++)
+        tileIndex[tiles[i].get()] = i;
+
+    int totalNeighbors = 0;
+    for (int t = 0; t < tileCount; t++)
+        totalNeighbors += tiles[t]->get_neighbour_count();
+
+    PackedInt32Array neighborIndices;
+    neighborIndices.resize(totalNeighbors);
+    PackedInt32Array offsets;
+    offsets.resize(tileCount + 1);
+
+    int writePos = 0;
+    for (int t = 0; t < tileCount; t++)
+    {
+        offsets[t] = writePos;
+        const Tile *const *neighbours = tiles[t]->get_neighbours_data();
+        int nCount = tiles[t]->get_neighbour_count();
+        for (int n = 0; n < nCount; n++)
+        {
+            auto it = tileIndex.find(neighbours[n]);
+            neighborIndices[writePos++] = (it != tileIndex.end()) ? it->second : -1;
+        }
+    }
+    offsets[tileCount] = writePos;
+
+    result["neighbor_indices"] = neighborIndices;
+    result["offsets"] = offsets;
     return result;
 }

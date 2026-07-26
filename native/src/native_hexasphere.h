@@ -87,6 +87,13 @@ public:
     Dictionary get_border_data() const;
 
     /// <summary>
+    /// Returns all tile neighbor relationships in CSR (Compressed Sparse Row) format.
+    /// Dictionary keys: "neighbor_indices" (flat PackedInt32Array of neighbor tile indices),
+    /// "offsets" (PackedInt32Array where offsets[t] .. offsets[t+1] is the range in neighbor_indices for tile t).
+    /// </summary>
+    Dictionary get_all_tile_neighbors() const;
+
+    /// <summary>
     /// Builds a complete ArrayMesh for the entire sphere, including vertex positions,
     /// normals, and UV2 data (tile index encoded in UV2.x). Returns the mesh and per-tile
     /// vertex/index metadata.

@@ -295,6 +295,7 @@ Key virtual methods in `PlanetBorderRenderer`:
 │  - get_tile_center()    → Vector3                    │
 │  - get_tile_points()    → Vector3[]                  │
 │  - get_all_tile_centers() → Vector3[]                │
+│  - get_all_tile_neighbors() → Dictionary (CSR)       │
 └──────────────┬───────────────────────────────────────┘
                │ GDExtension
 ┌──────────────▼───────────────────────────────────────┐

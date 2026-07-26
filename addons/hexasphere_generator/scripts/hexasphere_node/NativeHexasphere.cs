@@ -22,6 +22,7 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodGetBorderData = "get_border_data";
     private static readonly StringName MethodBuildMesh = "build_mesh";
     private static readonly StringName MethodGetAllTileCenters = "get_all_tile_centers";
+    private static readonly StringName MethodGetAllTileNeighbors = "get_all_tile_neighbors";
 
     /// <summary>
     /// Instantiates the native GDExtension hexasphere object.
@@ -180,5 +181,45 @@ public class NativeHexasphere : IDisposable
         {
             _semaphore.Release();
         }
+    }
+
+    /// <summary>
+    /// Returns all tile neighbor relationships in CSR format.
+    /// Dictionary keys: "neighbor_indices" (int[]), "offsets" (int[]).
+    /// </summary>
+    public virtual Dictionary GetAllTileNeighbors()
+    {
+        _semaphore.Wait();
+        try
+        {
+            return (Dictionary)_native.Call(MethodGetAllTileNeighbors);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Unpacks CSR-format neighbor data into a jagged array int[][] where
+    /// result[t] contains the neighbor indices for tile t.
+    /// </summary>
+    public static int[][] BuildNeighborLists(Dictionary data)
+    {
+        int[] neighborIndices = (int[])data["neighbor_indices"];
+        int[] offsets = (int[])data["offsets"];
+        int tileCount = offsets.Length - 1;
+        int[][] result = new int[tileCount][];
+        for (int t = 0; t < tileCount; t++)
+        {
+            int start = offsets[t];
+            int end = offsets[t + 1];
+            int count = end - start;
+            int[] neighbors = new int[count];
+            for (int i = 0; i < count; i++)
+                neighbors[i] = neighborIndices[start + i];
+            result[t] = neighbors;
+        }
+        return result;
     }
 }
