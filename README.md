@@ -5,7 +5,7 @@ A procedural hexagonal sphere generator for Godot 4. Generates a spherical grid 
 The math core is written in **C++ (GDExtension)** for maximum performance, with a C# wrapper for seamless integration.
 
 ![Preview](preview.png)
-![Preview — UV projector](preview_projector.png)
+![Preview — UV projector](preview2.png)
 
 ## Features
 
@@ -61,11 +61,6 @@ func _calculate_color(tile_center: Vector3) -> Color:
     var hue = lerp(0.5, 0.7, (noise + 1.0) / 2.0)
     return Color.from_hsv(hue, 0.8, 0.9)
 ```
-
-Key methods available from GDScript:
-- `GetTileCenter(tileIndex: int) -> Vector3` — get world position of a tile
-- `SetAllTileColors(colors: Array[Color])` — apply colors to all tiles
-- `PlanetGenerated` signal — emitted when generation completes with `tile_count`
 
 ### Via Script — C# (Simple)
 
