@@ -32,14 +32,25 @@ public partial class HexasphereProjectorController : Node2D
     public MeshInstance2D OverlayMeshInstance2D;
 
     private NativeHexasphere _hexasphere;
-    private Color[] _colors;
     private Vector2 _lastMapSize;
     private int _selectedTile = -1;
     private UvCamera2D _camera2D;
     private bool _meshDirty = true;
     private NativeHexasphere _cachedHexasphere;
-    private Color[] _cachedColors;
     private Vector2 _cachedMapSize;
+    private Vector3[] _cachedVertices;
+    private int[] _cachedTriToTile;
+    private List<HitTri> _cachedHitTris;
+    private NativeHexasphere _cachedGeomHexasphere;
+    private Vector2 _cachedGeomMapSize;
+    private bool _hasCachedGeometry;
+
+    private int _texWidth;
+    private int _texHeight;
+    private Image _tileColorImage;
+    private ImageTexture _tileColorTexture;
+    private byte[] _colorBuffer;
+    private static Shader _uvTileColorsShader;
 
 
     
@@ -109,7 +120,6 @@ public partial class HexasphereProjectorController : Node2D
     /// <param name="mapSize">Target size of the UV map in pixels.</param>
     public virtual void BuildMap2D(NativeHexasphere hexasphere, Color[] colors, Vector2 mapSize)
     {
-        
         if (hexasphere == null || MeshInstance2D == null)
         {
             GD.PrintErr($"[HexasphereProjectorController] BuildMap2D failed - hexasphere is null: {hexasphere == null}, MeshInstance2D is null: {MeshInstance2D == null}");
@@ -122,37 +132,38 @@ public partial class HexasphereProjectorController : Node2D
             throw new System.ArgumentException(
                 $"colors.Length ({colors.Length}) < tileCount ({tileCount})");
 
-        bool needsRebuild = _meshDirty
+        bool geomChanged = _meshDirty
             || _cachedHexasphere != hexasphere
-            || _cachedColors != colors
             || _cachedMapSize != mapSize;
 
         _cachedHexasphere = hexasphere;
-        _cachedColors = colors;
         _cachedMapSize = mapSize;
 
-        if (needsRebuild)
+        if (geomChanged)
         {
             if (MeshInstance2D.Mesh is ArrayMesh old)
                 old.Dispose();
+            if (OverlayMeshInstance2D?.Mesh is ArrayMesh oldOverlay)
+                oldOverlay.Dispose();
+            OverlayMeshInstance2D.Mesh = null;
 
             _hexasphere = hexasphere;
-            _colors = colors;
             _lastMapSize = mapSize;
             _selectedTile = -1;
 
-            BuildMesh(colors, mapSize);
+            if (_hasCachedGeometry && _cachedGeomHexasphere == hexasphere && _cachedGeomMapSize == mapSize)
+                BuildMeshFromCache(colors, mapSize);
+            else
+                BuildMesh(colors, mapSize);
+
             BuildSpatialGrid();
             _meshDirty = false;
-
-            if (OverlayMeshInstance2D != null)
-            {
-                if (OverlayMeshInstance2D.Mesh is ArrayMesh oldOverlayMesh)
-                    oldOverlayMesh.Dispose();
-                OverlayMeshInstance2D.Mesh = null;
-            }
         }
-        
+        else if (colors != null)
+        {
+            WriteColorsToImage(colors);
+        }
+
         var camera = _camera2D;
         if (camera != null)
         {
@@ -160,35 +171,112 @@ public partial class HexasphereProjectorController : Node2D
             camera.TargetZoom = 0.5f;
             camera.SetPanLimits(mapSize);
         }
-        
     }
 
     private void BuildMesh(Color[] colors, Vector2 mapSize)
     {
+        var geom = ComputeUvGeometry(_hexasphere, mapSize);
         int tileCount = _hexasphere.GetTileCount();
-        _hitTris.Clear();
+        int tw = Mathf.CeilToInt(Mathf.Sqrt(tileCount));
+        int th = Mathf.CeilToInt((float)tileCount / tw);
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
+        int vi = 0;
+        for (int ti = 0; ti < geom.TriToTile.Length; ti++)
+        {
+            int idx = geom.TriToTile[ti];
+            var uv = new Vector2((idx % tw + 0.5f) / tw, (idx / tw + 0.5f) / th);
+            st.SetUV(uv);
+            st.SetColor(Colors.White);
+            st.AddVertex(geom.Vertices[vi++]);
+            st.SetUV(uv);
+            st.SetColor(Colors.White);
+            st.AddVertex(geom.Vertices[vi++]);
+            st.SetUV(uv);
+            st.SetColor(Colors.White);
+            st.AddVertex(geom.Vertices[vi++]);
+        }
+
+        MeshInstance2D.Mesh = st.Commit();
+        _hitTris = geom.HitTris;
+
+        SetupTextureMaterial(colors);
+    }
+
+    private struct UvGeometryData
+    {
+        public Vector3[] Vertices;
+        public int[] TriToTile;
+        public List<HitTri> HitTris;
+    }
+
+    private UvGeometryData ComputeUvGeometry(NativeHexasphere hexasphere, Vector2 mapSize)
+    {
+        _hexasphere = hexasphere;
+        int tileCount = hexasphere.GetTileCount();
+        var verts = new List<Vector3>();
+        var triToTile = new List<int>();
+        var hitTris = new List<HitTri>();
 
         for (int t = 0; t < tileCount; t++)
         {
-            Vector3[] pts = _hexasphere.GetTilePoints(t);
+            Vector3[] pts = hexasphere.GetTilePoints(t);
             int n = pts.Length;
             if (n < 3) continue;
 
-            Color color = colors != null ? colors[t] : Colors.White;
-
             if (IsPoleCapTile(t))
             {
-                EmitPoleCapTile(st, t, color, mapSize);
+                Vector3 centerPos = hexasphere.GetTileCenter(t);
+                float poleV = centerPos.Y > 0 ? 0f : 1f;
+
+                var ringUv = new Vector2[n];
+                for (int i = 0; i < n; i++)
+                    ringUv[i] = HexasphereUvProjector.CalculateUv(pts[i]);
+
+                int[] order = new int[n];
+                for (int i = 0; i < n; i++) order[i] = i;
+                System.Array.Sort(order, (a, b) => ringUv[a].X.CompareTo(ringUv[b].X));
+
+                for (int k = 0; k < n; k++)
+                {
+                    int i0 = order[k];
+                    int i1 = order[(k + 1) % n];
+
+                    float u0 = ringUv[i0].X, v0 = ringUv[i0].Y;
+                    float u1 = ringUv[i1].X, v1 = ringUv[i1].Y;
+                    if (k == n - 1) u1 += 1f;
+
+                    var quad = new List<Vector2>
+                    {
+                        new Vector2(u0, v0),
+                        new Vector2(u1, v0),
+                        new Vector2(u1, poleV),
+                        new Vector2(u0, poleV)
+                    };
+
+                    var clipped = ClipPolygonToRect(quad);
+                    if (clipped.Count < 3) continue;
+
+                    for (int j = 1; j < clipped.Count - 1; j++)
+                    {
+                        var p0 = UvToScreen(clipped[0], mapSize);
+                        var p1 = UvToScreen(clipped[j], mapSize);
+                        var p2 = UvToScreen(clipped[j + 1], mapSize);
+
+                        verts.Add(new Vector3(p0.X, p0.Y, 0));
+                        verts.Add(new Vector3(p1.X, p1.Y, 0));
+                        verts.Add(new Vector3(p2.X, p2.Y, 0));
+                        triToTile.Add(t);
+                        hitTris.Add(new HitTri { TileIndex = t, A = p0, B = p1, C = p2 });
+                    }
+                }
                 continue;
             }
 
             Vector2[] uvs = ComputeTileUvs(t);
-
-            // Clip each fan triangle against [0,1]x[0,1] to handle seam wrapping and poles
             Vector2 center = uvs[0];
+
             for (int i = 0; i < n; i++)
             {
                 int next = (i + 1) % n;
@@ -201,27 +289,118 @@ public partial class HexasphereProjectorController : Node2D
                         var p1 = UvToScreen(clipped[j], mapSize);
                         var p2 = UvToScreen(clipped[j + 1], mapSize);
 
-                        st.SetColor(color);
-                        st.AddVertex(new Vector3(p0.X, p0.Y, 0));
-                        st.SetColor(color);
-                        st.AddVertex(new Vector3(p1.X, p1.Y, 0));
-                        st.SetColor(color);
-                        st.AddVertex(new Vector3(p2.X, p2.Y, 0));
-
-                        _hitTris.Add(new HitTri { TileIndex = t, A = p0, B = p1, C = p2 });
+                        verts.Add(new Vector3(p0.X, p0.Y, 0));
+                        verts.Add(new Vector3(p1.X, p1.Y, 0));
+                        verts.Add(new Vector3(p2.X, p2.Y, 0));
+                        triToTile.Add(t);
+                        hitTris.Add(new HitTri { TileIndex = t, A = p0, B = p1, C = p2 });
                     }
                 }
             }
         }
 
-        MeshInstance2D.Mesh = st.Commit();
-        
-        if (MeshInstance2D.Material == null)
+        return new UvGeometryData
         {
-            var material = new CanvasItemMaterial();
-            material.BlendMode = CanvasItemMaterial.BlendModeEnum.Mix;
-            MeshInstance2D.Material = material;
+            Vertices = verts.ToArray(),
+            TriToTile = triToTile.ToArray(),
+            HitTris = hitTris
+        };
+    }
+
+    private void BuildMeshFromCache(Color[] colors, Vector2 mapSize)
+    {
+        int tileCount = _cachedTriToTile.Length;
+        int tw = Mathf.CeilToInt(Mathf.Sqrt(tileCount));
+        int th = Mathf.CeilToInt((float)tileCount / tw);
+
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        int vi = 0;
+        for (int ti = 0; ti < _cachedTriToTile.Length; ti++)
+        {
+            int idx = _cachedTriToTile[ti];
+            var uv = new Vector2((idx % tw + 0.5f) / tw, (idx / tw + 0.5f) / th);
+            st.SetUV(uv);
+            st.SetColor(Colors.White);
+            st.AddVertex(_cachedVertices[vi++]);
+            st.SetUV(uv);
+            st.SetColor(Colors.White);
+            st.AddVertex(_cachedVertices[vi++]);
+            st.SetUV(uv);
+            st.SetColor(Colors.White);
+            st.AddVertex(_cachedVertices[vi++]);
         }
+        MeshInstance2D.Mesh = st.Commit();
+        _hitTris = new List<HitTri>(_cachedHitTris);
+
+        SetupTextureMaterial(colors);
+    }
+
+    private void SetupTextureMaterial(Color[] colors)
+    {
+        int tileCount = _hexasphere?.GetTileCount() ?? colors?.Length ?? 0;
+        _texWidth = Mathf.CeilToInt(Mathf.Sqrt(tileCount));
+        _texHeight = Mathf.CeilToInt((float)tileCount / _texWidth);
+
+        _tileColorImage = Image.CreateEmpty(_texWidth, _texHeight, false, Image.Format.Rgba8);
+        _tileColorTexture = ImageTexture.CreateFromImage(_tileColorImage);
+
+        if (_uvTileColorsShader == null)
+            _uvTileColorsShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/uv_tile_colors.gdshader");
+
+        var material = new ShaderMaterial();
+        material.Shader = _uvTileColorsShader;
+        material.SetShaderParameter("tile_colors", _tileColorTexture);
+        MeshInstance2D.Material = material;
+
+        if (colors != null)
+            WriteColorsToImage(colors);
+    }
+
+    private void WriteColorsToImage(Color[] colors)
+    {
+        if (_tileColorImage == null || _texWidth <= 0 || _texHeight <= 0) return;
+
+        int count = Mathf.Min(colors?.Length ?? 0, _texWidth * _texHeight);
+        int requiredSize = _texWidth * _texHeight * 4;
+        if (_colorBuffer == null || _colorBuffer.Length != requiredSize)
+            _colorBuffer = new byte[requiredSize];
+
+        for (int i = 0; i < count; i++)
+        {
+            int offset = i * 4;
+            _colorBuffer[offset + 0] = (byte)(colors[i].R * 255);
+            _colorBuffer[offset + 1] = (byte)(colors[i].G * 255);
+            _colorBuffer[offset + 2] = (byte)(colors[i].B * 255);
+            _colorBuffer[offset + 3] = 255;
+        }
+
+        var img = Image.CreateFromData(_texWidth, _texHeight, false, Image.Format.Rgba8, _colorBuffer);
+        _tileColorTexture.Update(img);
+    }
+
+    public void UpdateColors(Color[] colors)
+    {
+        if (_tileColorImage == null || MeshInstance2D?.Material as ShaderMaterial == null)
+        {
+            if (_hexasphere != null)
+                BuildMap2D(_hexasphere, colors, _lastMapSize);
+            return;
+        }
+        WriteColorsToImage(colors);
+    }
+
+    public void PrecomputeUvGeometry(NativeHexasphere hexasphere, Vector2 mapSize)
+    {
+        if (hexasphere == null) return;
+
+        var geom = ComputeUvGeometry(hexasphere, mapSize);
+        _cachedVertices = geom.Vertices;
+        _cachedTriToTile = geom.TriToTile;
+        _cachedHitTris = geom.HitTris;
+        _cachedGeomHexasphere = hexasphere;
+        _cachedGeomMapSize = mapSize;
+        _hasCachedGeometry = true;
     }
 
     private Vector2[] ComputeTileUvs(int tileIndex)
@@ -256,11 +435,7 @@ public partial class HexasphereProjectorController : Node2D
 
     private Vector2 UvToScreen(Vector2 uv, Vector2 mapSize)
     {
-        // Round to integer pixels so mathematically identical vertices affected by float error merge into one point for the GPU.
-        float px = Mathf.Round(uv.X * mapSize.X);
-        float py = Mathf.Round(uv.Y * mapSize.Y);
-        
-        return new Vector2(px, py);
+        return new Vector2(uv.X * mapSize.X, uv.Y * mapSize.Y);
     }
 
     private void BuildSpatialGrid()

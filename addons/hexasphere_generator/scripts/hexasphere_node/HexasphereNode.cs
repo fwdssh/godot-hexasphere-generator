@@ -94,20 +94,21 @@ public partial class HexasphereNode : Node3D
     private HexasphereProjectorController UvProjector;
 
     protected HexasphereVisualController VisualController;
-    private ICellData[] _cellDatas;
-    private NativeHexasphere _hexasphere;
-    private Color[] _tileColors;
+    protected ICellData[] _cellDatas;
+    protected NativeHexasphere _hexasphere;
+    protected Color[] _tileColors;
     private int _selectedTileIndex = -1;
     private int _hoveredTileIndex = -1;
-    private bool _planetReady = false;
+    protected bool _planetReady = false;
+    protected bool _shouldAutoGenerate = true;
 
-    private NativeHexasphere _pendingHexasphere;
-    private Vector3[] _pendingCenters;
-    private ICellData[]       _pendingCellDatas;
-    private Vector3[] _tileDirs;
+    protected NativeHexasphere _pendingHexasphere;
+    protected Vector3[] _pendingCenters;
+    protected ICellData[] _pendingCellDatas;
+    protected Vector3[] _tileDirs;
 
     private float _bucketScale = 5f;
-    private Dictionary<Vector3I, List<int>> _spatialBuckets;
+    protected Dictionary<Vector3I, List<int>> _spatialBuckets;
 
     /// <summary>Returns true once the planet has been fully generated and is ready for interaction.</summary>
     public bool IsReady => _planetReady;
@@ -152,6 +153,25 @@ public partial class HexasphereNode : Node3D
 
         }
 
+        if (_shouldAutoGenerate)
+            StartGeneration();
+    }
+
+    virtual protected void CleanupResources()
+    {
+        _hexasphere?.Dispose();
+        _hexasphere = null;
+        _cellDatas = null;
+        _tileColors = null;
+        _tileDirs = null;
+        _spatialBuckets = null;
+        _pendingHexasphere = null;
+        _pendingCenters = null;
+        _pendingCellDatas = null;
+    }
+
+    virtual protected void StartGeneration()
+    {
         var hexasphere = new NativeHexasphere();
         Task.Run(() =>
         {
@@ -170,6 +190,8 @@ public partial class HexasphereNode : Node3D
     virtual protected void SetVisualController()
     {
         VisualController = GetNodeOrNull<HexasphereVisualController>("HexasphereVisual");
+        if (VisualController != null && !GodotObject.IsInstanceValid(VisualController))
+            VisualController = null;
         if (VisualController == null)
         {
             VisualController = new HexasphereVisualController();
@@ -205,11 +227,26 @@ virtual protected void FinalizePlanet()
         return;
     }
 
+    if (_pendingHexasphere == null)
+    {
+        _pendingCenters    = null;
+        _pendingCellDatas  = null;
+        return;
+    }
+
     _cellDatas = _pendingCellDatas;
     _hexasphere = _pendingHexasphere;
 
     var result = _pendingHexasphere.BuildMesh();
     var mesh = (ArrayMesh)result["mesh"];
+
+    if (!GodotObject.IsInstanceValid(VisualController))
+    {
+        _pendingHexasphere = null;
+        _pendingCenters    = null;
+        _pendingCellDatas  = null;
+        return;
+    }
 
     VisualController.SetNativeHexasphere(_pendingHexasphere);
     VisualController.ShaderReady += OnShaderReady;

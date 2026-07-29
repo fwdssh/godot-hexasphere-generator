@@ -77,4 +77,16 @@ public partial class UvCamera2D : Camera2D
         _panCenter = mapSize * 0.5f;
         _panLimits = mapSize * 0.6f;
     }
+
+    /// <summary>
+    /// Adjusts zoom limits based on the icosahedron subdivision level.
+    /// Higher subdivision = more tiles = finer detail = more zoom allowed.
+    /// </summary>
+    /// <param name="subDiv">The icosahedron subdivision frequency.</param>
+    public virtual void SetZoomLimits(int subDiv)
+    {
+        MaxZoom = Mathf.Min(10f, 0.15f * subDiv);
+        MinZoom = Mathf.Max(0.05f, 0.5f / subDiv);
+        TargetZoom = Mathf.Min(1.0f, 0.3f + subDiv * 0.01f);
+    }
 }
