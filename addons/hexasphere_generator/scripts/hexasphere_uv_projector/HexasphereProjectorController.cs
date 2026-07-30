@@ -224,24 +224,44 @@ public partial class HexasphereProjectorController : Node2D
     {
         _hexasphere = hexasphere;
         int tileCount = hexasphere.GetTileCount();
+
+        var buildData = hexasphere.GetBuildData();
+        var allPoints = (Vector3[])buildData["points"];
+        var pointCounts = (int[])buildData["point_counts"];
+        var allCenters = hexasphere.GetAllTileCenters();
+
         var verts = new List<Vector3>();
         var triToTile = new List<int>();
         var hitTris = new List<HitTri>();
 
+        int ptOffset = 0;
+
         for (int t = 0; t < tileCount; t++)
         {
-            Vector3[] pts = hexasphere.GetTilePoints(t);
-            int n = pts.Length;
-            if (n < 3) continue;
+            int n = pointCounts[t];
 
-            if (IsPoleCapTile(t))
+            if (n < 3) { ptOffset += n; continue; }
+
+            Vector3 centerPos = allCenters[t];
+
+            float total = 0f;
+            for (int i = 0; i < n; i++)
             {
-                Vector3 centerPos = hexasphere.GetTileCenter(t);
+                Vector2 uvA = HexasphereUvProjector.CalculateUv(allPoints[ptOffset + i]);
+                Vector2 uvB = HexasphereUvProjector.CalculateUv(allPoints[ptOffset + (i + 1) % n]);
+                float d = uvB.X - uvA.X;
+                d -= Mathf.Round(d);
+                total += d;
+            }
+            bool isPoleCap = Mathf.Abs(Mathf.Abs(total) - 1f) < 0.1f;
+
+            if (isPoleCap)
+            {
                 float poleV = centerPos.Y > 0 ? 0f : 1f;
 
                 var ringUv = new Vector2[n];
                 for (int i = 0; i < n; i++)
-                    ringUv[i] = HexasphereUvProjector.CalculateUv(pts[i]);
+                    ringUv[i] = HexasphereUvProjector.CalculateUv(allPoints[ptOffset + i]);
 
                 int[] order = new int[n];
                 for (int i = 0; i < n; i++) order[i] = i;
@@ -280,32 +300,43 @@ public partial class HexasphereProjectorController : Node2D
                         hitTris.Add(new HitTri { TileIndex = t, A = p0, B = p1, C = p2 });
                     }
                 }
-                continue;
             }
-
-            Vector2[] uvs = ComputeTileUvs(t);
-            Vector2 center = uvs[0];
-
-            for (int i = 0; i < n; i++)
+            else
             {
-                int next = (i + 1) % n;
-                var clipped = ClipTriangleToRect(center, uvs[i + 1], uvs[next + 1]);
-                if (clipped.Count >= 3)
-                {
-                    for (int j = 1; j < clipped.Count - 1; j++)
-                    {
-                        var p0 = UvToScreen(clipped[0], mapSize);
-                        var p1 = UvToScreen(clipped[j], mapSize);
-                        var p2 = UvToScreen(clipped[j + 1], mapSize);
+                Vector2 centerUv = HexasphereUvProjector.CalculateUv(centerPos);
+                var uvs = new Vector2[n + 1];
+                uvs[0] = centerUv;
 
-                        verts.Add(new Vector3(p0.X, p0.Y, 0));
-                        verts.Add(new Vector3(p1.X, p1.Y, 0));
-                        verts.Add(new Vector3(p2.X, p2.Y, 0));
-                        triToTile.Add(t);
-                        hitTris.Add(new HitTri { TileIndex = t, A = p0, B = p1, C = p2 });
+                for (int i = 0; i < n; i++)
+                    uvs[i + 1] = HexasphereUvProjector.CalculateUv(allPoints[ptOffset + i]);
+
+                float refU = uvs[0].X;
+                for (int i = 0; i < uvs.Length; i++)
+                    uvs[i].X += HexasphereUvProjector.GetSeamOffset(uvs[i].X, refU);
+
+                for (int i = 0; i < n; i++)
+                {
+                    int next = (i + 1) % n;
+                    var clipped = ClipTriangleToRect(uvs[0], uvs[i + 1], uvs[next + 1]);
+                    if (clipped.Count >= 3)
+                    {
+                        for (int j = 1; j < clipped.Count - 1; j++)
+                        {
+                            var p0 = UvToScreen(clipped[0], mapSize);
+                            var p1 = UvToScreen(clipped[j], mapSize);
+                            var p2 = UvToScreen(clipped[j + 1], mapSize);
+
+                            verts.Add(new Vector3(p0.X, p0.Y, 0));
+                            verts.Add(new Vector3(p1.X, p1.Y, 0));
+                            verts.Add(new Vector3(p2.X, p2.Y, 0));
+                            triToTile.Add(t);
+                            hitTris.Add(new HitTri { TileIndex = t, A = p0, B = p1, C = p2 });
+                        }
                     }
                 }
             }
+
+            ptOffset += n;
         }
 
         return new UvGeometryData

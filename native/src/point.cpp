@@ -15,17 +15,18 @@ std::vector<int32_t> Point::subdivide(int32_t targetIdx, int count, const std::f
     segments.reserve(static_cast<size_t>(count) + 2);
     segments.push_back(_id);
 
-    float invCount = 1.0f / count;
-    const Point& target = points[targetIdx];
+    const Vector3 startPos = _position;
+    const Vector3 targetPos = points[targetIdx].get_position();
 
+    float invCount = 1.0f / count;
     for (int i = 1; i < count; i++)
     {
         float t = i * invCount;
         float oneMinusT = 1.0f - t;
         Vector3 pos(
-            _position.x * oneMinusT + target._position.x * t,
-            _position.y * oneMinusT + target._position.y * t,
-            _position.z * oneMinusT + target._position.z * t);
+            startPos.x * oneMinusT + targetPos.x * t,
+            startPos.y * oneMinusT + targetPos.y * t,
+            startPos.z * oneMinusT + targetPos.z * t);
         segments.push_back(cache_func(pos));
     }
 
