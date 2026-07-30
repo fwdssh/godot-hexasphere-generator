@@ -192,6 +192,12 @@ public partial class MyPlanet : Node3D
 | `TileDeselected` | — | Selection was cleared in the projection |
 | `ProjectionClosed` | — | The UV projection view was closed |
 
+## Input Actions
+
+| Action | Key | Description |
+|---|---|---|
+| `ui_toggle_uv_map` | `1` | Open UV map projection (while hovering a tile) |
+| `ui_close_uv_map` | `Escape` | Close UV map projection |
 
 
 
