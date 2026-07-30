@@ -39,7 +39,7 @@ void Tile::build_faces(const std::vector<Face *> &icosahedron_faces)
     {
         Vector3 lerped = centerPos.lerp(face->get_center_position(), _size);
         float scale = _radius / lerped.length();
-        _boundaryPoints[_boundaryCount++] = Point(lerped * scale, localPtId++);
+        _boundaryPoints[_boundaryCount++] = Point(lerped * scale, localPtId++, false);
     }
 
     int n = _boundaryCount;

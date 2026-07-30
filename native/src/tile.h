@@ -27,16 +27,20 @@ private:
     std::vector<Face> _faces;
     std::array<std::array<int, 3>, 4> _faceIndices;
     int _faceCount = 0;
-    std::array<Point *, 12> _neighbourCenters;
+    std::array<Point *, 6> _neighbourCenters;
     int _neighbourCenterCount = 0;
-    std::array<Tile *, 12> _neighbours;
+    std::array<Tile *, 6> _neighbours;
     int _neighbourCount = 0;
+    int _index = -1;
 
 public:
     Tile(Point *center, float radius, float size);
     ~Tile() = default;
     Tile(const Tile &) = delete;
     Tile &operator=(const Tile &) = delete;
+
+    void set_index(int idx) { _index = idx; }
+    int get_index() const { return _index; }
 
     /// <summary>
     /// Returns a pointer to the center point of this tile.

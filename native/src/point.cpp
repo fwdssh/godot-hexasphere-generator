@@ -5,10 +5,10 @@
 
 Point::Point() : _id(-1), _position(Vector3()) {}
 
-Point::Point(const Vector3 &position, int localId)
+Point::Point(const Vector3 &position, int localId, bool reserveFaces)
     : _id(localId), _position(position)
 {
-    _faces.reserve(6);
+    if (reserveFaces) _faces.reserve(6);
 }
 
 Point::Point(Point &&other) noexcept

@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="hexasphere"
-run/main_scene="uid://p86ntf03m7ee"
+run/main_scene="uid://bsrtm34wwfaws"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 config/icon="res://addons/hexasphere_generator/icon.svg"
 

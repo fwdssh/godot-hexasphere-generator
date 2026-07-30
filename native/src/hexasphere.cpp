@@ -29,6 +29,18 @@ Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
     auto ico_faces = construct_icosahedron();
     subdivide_icosahedron(ico_faces);
     construct_tiles();
+
+    // Face topology no longer needed after tile construction — free it
+    for (auto &pt : _points)
+    {
+        pt->get_faces().clear();
+        pt->get_faces().shrink_to_fit();
+    }
+    _faces.clear();
+    _faces.shrink_to_fit();
+
+    // Point grid was only needed for deduplication during subdivision
+    decltype(_pointGrid)().swap(_pointGrid);
 }
 
 std::vector<Face *> Hexasphere::construct_icosahedron()
@@ -146,6 +158,7 @@ void Hexasphere::construct_tiles()
 
     std::for_each(std::execution::par, indices.begin(), indices.end(), [this](int i) {
         _tiles[i] = std::make_unique<Tile>(_points[i].get(), _radius, _hexSize);
+        _tiles[i]->set_index(i);
     });
 
     std::unordered_map<int, Tile *> tile_map;

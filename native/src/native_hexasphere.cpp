@@ -4,7 +4,7 @@
 #include "point.h"
 #include "face.h"
 #include <godot_cpp/classes/array_mesh.hpp>
-#include <unordered_map>
+
 
 /// <summary>
 /// Default constructor. Call generate() to initialize the sphere data.
@@ -345,11 +345,6 @@ Dictionary NativeHexasphere::get_all_tile_neighbors() const
     const auto &tiles = _hexasphere->get_tiles();
     int tileCount = _hexasphere->get_tile_count();
 
-    std::unordered_map<const Tile *, int> tileIndex;
-    tileIndex.reserve(tileCount);
-    for (int i = 0; i < tileCount; i++)
-        tileIndex[tiles[i].get()] = i;
-
     int totalNeighbors = 0;
     for (int t = 0; t < tileCount; t++)
         totalNeighbors += tiles[t]->get_neighbour_count();
@@ -366,10 +361,7 @@ Dictionary NativeHexasphere::get_all_tile_neighbors() const
         const Tile *const *neighbours = tiles[t]->get_neighbours_data();
         int nCount = tiles[t]->get_neighbour_count();
         for (int n = 0; n < nCount; n++)
-        {
-            auto it = tileIndex.find(neighbours[n]);
-            neighborIndices[writePos++] = (it != tileIndex.end()) ? it->second : -1;
-        }
+            neighborIndices[writePos++] = neighbours[n] ? neighbours[n]->get_index() : -1;
     }
     offsets[tileCount] = writePos;
 
