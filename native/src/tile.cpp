@@ -4,77 +4,67 @@
 #include <godot_cpp/core/math.hpp>
 #include <unordered_set>
 
-Tile::Tile(Point *center, float radius, float size)
-    : _center(center), _radius(radius), _size(Math::clamp(size, 0.01f, 1.0f))
+Tile::Tile(int32_t centerIdx, float radius, float size, const std::vector<Face>& globalFaces, const std::vector<Point>& globalPoints)
+    : _centerIdx(centerIdx), _radius(radius), _size(Math::clamp(size, 0.01f, 1.0f))
 {
-    std::vector<Face *> icosahedron_faces = center->get_ordered_faces();
-    int faceCount = (int)icosahedron_faces.size();
+    std::vector<int32_t> icosahedron_faces = globalPoints[centerIdx].get_ordered_faces(globalFaces);
 
-    _faces.reserve(faceCount);
-
-    store_neighbour_centers(icosahedron_faces);
-    build_faces(icosahedron_faces);
+    store_neighbour_centers(icosahedron_faces, globalFaces);
+    build_faces(icosahedron_faces, globalFaces, globalPoints);
 }
 
-void Tile::store_neighbour_centers(const std::vector<Face *> &icosahedron_faces)
+void Tile::store_neighbour_centers(const std::vector<int32_t>& icosahedron_faces, const std::vector<Face>& globalFaces)
 {
     std::unordered_set<int> seen;
-    for (Face *face : icosahedron_faces)
+    for (int32_t faceIdx : icosahedron_faces)
     {
-        Point *a = nullptr, *b = nullptr;
-        face->get_other_points(_center, a, b);
+        int32_t a = -1, b = -1;
+        globalFaces[faceIdx].get_other_point_indices(_centerIdx, a, b);
 
-        if (seen.insert(a->get_id()).second)
+        if (seen.insert(a).second)
             _neighbourCenters[_neighbourCenterCount++] = a;
-        if (seen.insert(b->get_id()).second)
+        if (seen.insert(b).second)
             _neighbourCenters[_neighbourCenterCount++] = b;
     }
 }
 
-void Tile::build_faces(const std::vector<Face *> &icosahedron_faces)
+void Tile::build_faces(const std::vector<int32_t>& icosahedron_faces, const std::vector<Face>& globalFaces, const std::vector<Point>& globalPoints)
 {
-    Vector3 centerPos = _center->get_position();
+    Vector3 centerPos = globalPoints[_centerIdx].get_position();
     int localPtId = 0;
-    for (Face *face : icosahedron_faces)
+    for (int32_t faceIdx : icosahedron_faces)
     {
-        Vector3 lerped = centerPos.lerp(face->get_center_position(), _size);
+        Vector3 lerped = centerPos.lerp(globalFaces[faceIdx].get_center_position(globalPoints), _size);
         float scale = _radius / lerped.length();
-        _boundaryPoints[_boundaryCount++] = Point(lerped * scale, localPtId++, false);
+        _boundaryPoints[_boundaryCount++] = Point(lerped * scale, localPtId++);
     }
 
     int n = _boundaryCount;
     if (n < 3) return;
 
-    _faces.reserve(n - 2);
     int localFaceId = 0;
     for (int i = 1; i < n - 1; i++)
     {
-        _faces.emplace_back(
-            &_boundaryPoints[0],
-            &_boundaryPoints[i],
-            &_boundaryPoints[i + 1],
-            localFaceId++,
-            false);
+        _faces[_faceCount] = Face(0, i, i + 1, localFaceId++,
+            _boundaryPoints[0].get_position(),
+            _boundaryPoints[i].get_position(),
+            _boundaryPoints[i + 1].get_position());
 
-        auto findLocalIdx = [&](Point *p) -> int {
-            if (p == &_boundaryPoints[0]) return 0;
-            if (p == &_boundaryPoints[i]) return i;
-            return i + 1;
+        _faceIndices[_faceCount] = {
+            _faces[_faceCount].get_point_indices()[0],
+            _faces[_faceCount].get_point_indices()[1],
+            _faces[_faceCount].get_point_indices()[2]
         };
-
-        _faceIndices[_faceCount++] = {
-            findLocalIdx(_faces.back().get_points()[0]),
-            findLocalIdx(_faces.back().get_points()[1]),
-            findLocalIdx(_faces.back().get_points()[2])};
+        _faceCount++;
     }
 }
 
-void Tile::resolve_neighbour_tiles_fast(const std::unordered_map<int, Tile *> &tile_map)
+void Tile::resolve_neighbour_tiles_fast(const std::unordered_map<int, Tile*>& tile_map)
 {
     _neighbourCount = 0;
     for (int i = 0; i < _neighbourCenterCount; i++)
     {
-        auto it = tile_map.find(_neighbourCenters[i]->get_id());
+        auto it = tile_map.find(_neighbourCenters[i]);
         if (it != tile_map.end())
             _neighbours[_neighbourCount++] = it->second;
     }

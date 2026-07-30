@@ -2,17 +2,13 @@
 #include "point.h"
 #include <stdexcept>
 
-Face::Face(Point *point1, Point *point2, Point *point3, int localId, bool trackFaceInPoints)
+Face::Face(int32_t pointIdx1, int32_t pointIdx2, int32_t pointIdx3, int localId,
+           const Vector3& p1, const Vector3& p2, const Vector3& p3)
     : _id(localId)
 {
-    Vector3 p1 = point1->get_position();
-    Vector3 p2 = point2->get_position();
-    Vector3 p3 = point3->get_position();
-
-    Vector3 center(
-        (p1.x + p2.x + p3.x) / 3.0f,
-        (p1.y + p2.y + p3.y) / 3.0f,
-        (p1.z + p2.z + p3.z) / 3.0f);
+    Vector3 center((p1.x + p2.x + p3.x) / 3.0f,
+                   (p1.y + p2.y + p3.y) / 3.0f,
+                   (p1.z + p2.z + p3.z) / 3.0f);
 
     Vector3 cross = (p2 - p1).cross(p3 - p1);
     float crossLen = cross.length();
@@ -20,84 +16,58 @@ Face::Face(Point *point1, Point *point2, Point *point3, int localId, bool trackF
 
     if (outward)
     {
-        _points[0] = point1;
-        _points[1] = point2;
-        _points[2] = point3;
+        _pointIndices[0] = pointIdx1;
+        _pointIndices[1] = pointIdx2;
+        _pointIndices[2] = pointIdx3;
     }
     else
     {
-        _points[0] = point1;
-        _points[1] = point3;
-        _points[2] = point2;
-    }
-
-    if (trackFaceInPoints)
-    {
-        _points[0]->assign_face(this);
-        _points[1]->assign_face(this);
-        _points[2]->assign_face(this);
+        _pointIndices[0] = pointIdx1;
+        _pointIndices[1] = pointIdx3;
+        _pointIndices[2] = pointIdx2;
     }
 }
 
-Face::Face(Face &&other) noexcept
-    : _id(other._id), _points{other._points[0], other._points[1], other._points[2]}
+Vector3 Face::get_center_position(const std::vector<Point>& points) const
 {
-    other._id = -1;
-}
-
-Face &Face::operator=(Face &&other) noexcept
-{
-    if (this != &other)
-    {
-        _id = other._id;
-        _points[0] = other._points[0];
-        _points[1] = other._points[1];
-        _points[2] = other._points[2];
-        other._id = -1;
-    }
-    return *this;
-}
-
-Vector3 Face::get_center_position() const
-{
+    const Point& p1 = points[_pointIndices[0]];
+    const Point& p2 = points[_pointIndices[1]];
+    const Point& p3 = points[_pointIndices[2]];
     return Vector3(
-        (_points[0]->get_position().x + _points[1]->get_position().x + _points[2]->get_position().x) / 3.0f,
-        (_points[0]->get_position().y + _points[1]->get_position().y + _points[2]->get_position().y) / 3.0f,
-        (_points[0]->get_position().z + _points[1]->get_position().z + _points[2]->get_position().z) / 3.0f);
+        (p1.get_position().x + p2.get_position().x + p3.get_position().x) / 3.0f,
+        (p1.get_position().y + p2.get_position().y + p3.get_position().y) / 3.0f,
+        (p1.get_position().z + p2.get_position().z + p3.get_position().z) / 3.0f);
 }
 
-void Face::get_other_points(Point *point, Point *&out_a, Point *&out_b) const
+void Face::get_other_point_indices(int32_t pointIdx, int32_t& out_a, int32_t& out_b) const
 {
-    int id = point->get_id();
-    if (_points[0]->get_id() == id)
+    if (_pointIndices[0] == pointIdx)
     {
-        out_a = _points[1];
-        out_b = _points[2];
+        out_a = _pointIndices[1];
+        out_b = _pointIndices[2];
         return;
     }
-    if (_points[1]->get_id() == id)
+    if (_pointIndices[1] == pointIdx)
     {
-        out_a = _points[0];
-        out_b = _points[2];
+        out_a = _pointIndices[0];
+        out_b = _pointIndices[2];
         return;
     }
-    if (_points[2]->get_id() == id)
+    if (_pointIndices[2] == pointIdx)
     {
-        out_a = _points[0];
-        out_b = _points[1];
+        out_a = _pointIndices[0];
+        out_b = _pointIndices[1];
         return;
     }
     throw std::invalid_argument("Given point must be one of the points on the face!");
 }
 
-bool Face::is_adjacent_to_face(const Face *face) const
+bool Face::is_adjacent_to_face(const Face& face) const
 {
-    int a0 = _points[0]->get_id(), a1 = _points[1]->get_id(), a2 = _points[2]->get_id();
-    int b0 = face->_points[0]->get_id(), b1 = face->_points[1]->get_id(), b2 = face->_points[2]->get_id();
     int shared = 0;
-    if (a0 == b0 || a0 == b1 || a0 == b2) shared++;
-    if (a1 == b0 || a1 == b1 || a1 == b2) shared++;
+    if (_pointIndices[0] == face._pointIndices[0] || _pointIndices[0] == face._pointIndices[1] || _pointIndices[0] == face._pointIndices[2]) shared++;
+    if (_pointIndices[1] == face._pointIndices[0] || _pointIndices[1] == face._pointIndices[1] || _pointIndices[1] == face._pointIndices[2]) shared++;
     if (shared == 2) return true;
-    if (a2 == b0 || a2 == b1 || a2 == b2) shared++;
+    if (_pointIndices[2] == face._pointIndices[0] || _pointIndices[2] == face._pointIndices[1] || _pointIndices[2] == face._pointIndices[2]) shared++;
     return shared == 2;
 }

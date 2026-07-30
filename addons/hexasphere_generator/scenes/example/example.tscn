@@ -12,7 +12,7 @@ script = ExtResource("1_ejjd7")
 
 [node name="Hexasphere" type="Node3D" parent="." unique_id=798022267]
 script = ExtResource("2_t0nab")
-SubDivision = 300
+SubDivision = 500
 IsEmissive = true
 IsBordering = false
 UvProjectorPath = NodePath("../HexasphereUvProjector")

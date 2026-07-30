@@ -54,7 +54,7 @@ Vector3 NativeHexasphere::get_tile_center(int tile_idx) const
 {
     if (!_hexasphere || tile_idx < 0 || tile_idx >= _hexasphere->get_tile_count())
         return Vector3();
-    return _hexasphere->get_tiles()[tile_idx]->get_center()->get_position();
+    return _hexasphere->get_points()[_hexasphere->get_tiles()[tile_idx]->get_center()].get_position();
 }
 
 /// <summary>
@@ -71,7 +71,7 @@ PackedVector3Array NativeHexasphere::get_all_tile_centers() const
     PackedVector3Array result;
     result.resize(tileCount);
     for (int i = 0; i < tileCount; i++)
-        result[i] = tiles[i]->get_center()->get_position();
+        result[i] = _hexasphere->get_points()[tiles[i]->get_center()].get_position();
 
     return result;
 }
@@ -149,7 +149,7 @@ Dictionary NativeHexasphere::get_build_data() const
     for (int t = 0; t < tileCount; t++)
     {
         totalPoints += tiles[t]->get_boundary_count();
-        totalFaceIndices += (int)tiles[t]->get_faces().size() * 3;
+        totalFaceIndices += tiles[t]->get_face_count() * 3;
     }
 
     PackedVector3Array points;
@@ -265,7 +265,7 @@ Dictionary NativeHexasphere::build_mesh() const
 
     int totalVertices = 0;
     for (int t = 0; t < tileCount; t++)
-        totalVertices += (int)tiles[t]->get_faces().size() * 3;
+        totalVertices += tiles[t]->get_face_count() * 3;
 
     PackedVector3Array vertices;
     vertices.resize(totalVertices);

@@ -4,9 +4,9 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
-#include <unordered_map>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
+#include "ankerl/unordered_dense.h"
 
 using namespace godot;
 
@@ -18,31 +18,26 @@ struct Vector3iHash
 {
     std::size_t operator()(const Vector3i &v) const
     {
-        return std::hash<int>()(v.x) ^ (std::hash<int>()(v.y) << 1) ^ (std::hash<int>()(v.z) << 2);
+        std::size_t h = std::hash<int>()(v.x);
+        h ^= std::hash<int>()(v.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>()(v.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
     }
 };
 
-/// <summary>
-/// Core hexasphere engine: constructs an icosahedron, subdivides it, and generates
-/// hexagonal tiles on the sphere surface. Internal — use NativeHexasphere for the GDExtension API.
-/// </summary>
 class Hexasphere
 {
 private:
     float _radius;
     int _divisions;
     float _hexSize;
-
     float _pointEpsilon;
     float _gridScale;
 
-    int _nextPointId = 0;
-    int _nextFaceId = 0;
-
-    std::vector<std::unique_ptr<Point>> _points;
-    std::vector<std::unique_ptr<Face>> _faces;
+    std::vector<Point> _points;
+    std::vector<Face> _faces;
     std::vector<std::unique_ptr<Tile>> _tiles;
-    std::unordered_map<Vector3i, Point *, Vector3iHash> _pointGrid;
+    ankerl::unordered_dense::map<Vector3i, int32_t, Vector3iHash> _pointGrid;
 
 public:
     Hexasphere(float radius, int divisions, float hexSize);
@@ -50,26 +45,15 @@ public:
     Hexasphere(const Hexasphere &) = delete;
     Hexasphere &operator=(const Hexasphere &) = delete;
 
-    /// <summary>
-    /// Returns a reference to the internal vector of all tiles.
-    /// </summary>
     const std::vector<std::unique_ptr<Tile>> &get_tiles() const { return _tiles; }
-
-    /// <summary>
-    /// Returns a reference to the internal vector of all points.
-    /// </summary>
-    const std::vector<std::unique_ptr<Point>> &get_points() const { return _points; }
-
-    /// <summary>
-    /// Returns the total number of generated tiles.
-    /// </summary>
-    int get_tile_count() const { return (int)_tiles.size(); }
+    const std::vector<Point> &get_points() const { return _points; }
+    int get_tile_count() const { return static_cast<int>(_tiles.size()); }
 
 private:
-    std::vector<Face *> construct_icosahedron();
-    Point *cache_point(const Vector3 &position);
-    void subdivide_icosahedron(const std::vector<Face *> &ico_faces);
+    std::vector<int32_t> construct_icosahedron();
+    int32_t cache_point(const Vector3 &position);
+    void subdivide_icosahedron(const std::vector<int32_t> &ico_faces);
     void construct_tiles();
 };
 
-#endif // HEXASPHERE_HEXASPHERE_H
+#endif

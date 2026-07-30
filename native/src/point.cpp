@@ -2,99 +2,69 @@
 #include "face.h"
 #include <cmath>
 #include <sstream>
+#include <stdexcept>
 
-Point::Point() : _id(-1), _position(Vector3()) {}
-
-Point::Point(const Vector3 &position, int localId, bool reserveFaces)
+Point::Point(const Vector3& position, int localId)
     : _id(localId), _position(position)
 {
-    if (reserveFaces) _faces.reserve(6);
 }
 
-Point::Point(Point &&other) noexcept
-    : _id(other._id), _position(other._position), _faces(std::move(other._faces))
+std::vector<int32_t> Point::subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& cache_func, const std::vector<Point>& points) const
 {
-    other._id = -1;
-}
-
-Point &Point::operator=(Point &&other) noexcept
-{
-    if (this != &other)
-    {
-        _id = other._id;
-        _position = other._position;
-        _faces = std::move(other._faces);
-        other._id = -1;
-    }
-    return *this;
-}
-
-std::vector<Point *> Point::subdivide(Point *target, int count, const std::function<Point *(const Vector3 &)> &cache_func)
-{
-    std::vector<Point *> segments;
-    segments.reserve(count + 2);
-    segments.push_back(this);
+    std::vector<int32_t> segments;
+    segments.reserve(static_cast<size_t>(count) + 2);
+    segments.push_back(_id);
 
     float invCount = 1.0f / count;
+    const Point& target = points[targetIdx];
 
     for (int i = 1; i < count; i++)
     {
         float t = i * invCount;
         float oneMinusT = 1.0f - t;
         Vector3 pos(
-            _position.x * oneMinusT + target->_position.x * t,
-            _position.y * oneMinusT + target->_position.y * t,
-            _position.z * oneMinusT + target->_position.z * t);
+            _position.x * oneMinusT + target._position.x * t,
+            _position.y * oneMinusT + target._position.y * t,
+            _position.z * oneMinusT + target._position.z * t);
         segments.push_back(cache_func(pos));
     }
 
-    segments.push_back(target);
+    segments.push_back(targetIdx);
     return segments;
 }
 
-std::vector<Face *> Point::get_ordered_faces()
+std::vector<int32_t> Point::get_ordered_faces(const std::vector<Face>& faces) const
 {
-    int count = (int)_faces.size();
-    if (count == 0) return _faces;
+    int count = _faceCount;
+    if (count == 0) return {};
 
-    std::vector<Face *> ordered;
-    ordered.reserve(count);
-    ordered.push_back(_faces[0]);
+    std::vector<int32_t> ordered;
+    ordered.reserve(static_cast<size_t>(count));
+    ordered.push_back(_faceIndices[0]);
 
-    std::vector<bool> visited(count, false);
+    std::vector<bool> visited(static_cast<size_t>(count), false);
     visited[0] = true;
     int currentIdx = 0;
 
-    while ((int)ordered.size() < count)
+    while (static_cast<int>(ordered.size()) < count)
     {
-        Face *cur = _faces[currentIdx];
-        int cur_ids[3] = {
-            cur->get_points()[0]->get_id(),
-            cur->get_points()[1]->get_id(),
-            cur->get_points()[2]->get_id()
-        };
+        const Face& cur = faces[_faceIndices[currentIdx]];
+        const int32_t* cur_ids = cur.get_point_indices();
 
         bool found = false;
         for (int i = 0; i < count; i++)
         {
             if (visited[i]) continue;
-            Face *cand = _faces[i];
-            int cand_ids[3] = {
-                cand->get_points()[0]->get_id(),
-                cand->get_points()[1]->get_id(),
-                cand->get_points()[2]->get_id()
-            };
-
             int shared = 0;
+            const int32_t* cand_ids = faces[_faceIndices[i]].get_point_indices();
             for (int a = 0; a < 3 && shared < 2; a++)
                 for (int b = 0; b < 3 && shared < 2; b++)
                     if (cur_ids[a] == cand_ids[b]) shared++;
-
             if (shared == 2)
             {
                 visited[i] = true;
                 currentIdx = i;
-                ordered.push_back(_faces[i]);
+                ordered.push_back(_faceIndices[i]);
                 found = true;
                 break;
             }
@@ -105,22 +75,19 @@ std::vector<Face *> Point::get_ordered_faces()
     return ordered;
 }
 
-bool Point::is_overlapping(const Point &a, const Point &b, float epsilon)
+bool Point::is_overlapping(const Point& a, const Point& b, float epsilon)
 {
-    return is_overlapping(a, b._position, epsilon);
+    return a._position.distance_to(b._position) <= epsilon;
 }
 
-bool Point::is_overlapping(const Point &a, const Vector3 &b_pos, float epsilon)
+bool Point::is_overlapping(const Point& a, const Vector3& b_pos, float epsilon)
 {
-    return
-        std::abs(a._position.x - b_pos.x) <= epsilon &&
-        std::abs(a._position.y - b_pos.y) <= epsilon &&
-        std::abs(a._position.z - b_pos.z) <= epsilon;
+    return a._position.distance_to(b_pos) <= epsilon;
 }
 
 std::string Point::to_string() const
 {
     std::stringstream ss;
-    ss << _position.x << "," << _position.y << "," << _position.z;
+    ss << "Point(" << _id << ")";
     return ss.str();
 }
