@@ -17,23 +17,40 @@ public partial class HexasphereProjectorController : Node2D
     /// </summary>
     [Signal] public delegate void TileDeselectedEventHandler();
     /// <summary>
+    /// Emitted when the hovered tile changes on the UV map. Provides the tile index (-1 if none).
+    /// </summary>
+    [Signal] public delegate void TileHoveredEventHandler(int tileIndex);
+    /// <summary>
     /// Emitted when the UV projection view is closed.
     /// </summary>
     [Signal] public delegate void ProjectionClosedEventHandler();
 
     /// <summary>Size of the UV map render target in pixels.</summary>
     [Export] public Vector2 MapSize = new Vector2(1920, 1080);
-    /// <summary>Color used to highlight the selected tile on the UV map.</summary>
-    [Export] public Color SelectionColor = Colors.Yellow;
+
+    [ExportGroup("Interaction")]
+    /// <summary>If true, tiles can be clicked to select them.</summary>
+    [Export] public bool IsClickEnabled = true;
+    /// <summary>If true, tiles emit hover events when the mouse moves over them.</summary>
+    [Export] public bool IsHoverEnabled = true;
+
+    [ExportGroup("Visual")]
+    /// <summary>If true, the selected tile is highlighted with ClickColor.</summary>
+    [Export] public bool IsClickVisualEnabled = true;
+    /// <summary>Color used to highlight the selected tile.</summary>
+    [Export] public Color ClickColor = Colors.Yellow;
+    /// <summary>If true, the hovered tile is highlighted with HoverColor.</summary>
+    [Export] public bool IsHoverVisualEnabled = true;
+    /// <summary>Color used to highlight the hovered tile.</summary>
+    [Export] public Color HoverColor = Colors.Red;
     
     /// <summary>The MeshInstance2D that displays the main UV map.</summary>
     public MeshInstance2D MeshInstance2D;
-    /// <summary>The MeshInstance2D that displays the selection overlay on the UV map.</summary>
-    public MeshInstance2D OverlayMeshInstance2D;
 
     private NativeHexasphere _hexasphere;
     private Vector2 _lastMapSize;
     private int _selectedTile = -1;
+    private int _hoveredTile = -1;
     private UvCamera2D _camera2D;
     private bool _meshDirty = true;
     private NativeHexasphere _cachedHexasphere;
@@ -63,7 +80,6 @@ public partial class HexasphereProjectorController : Node2D
         EnsureChildNodes();
 
     MeshInstance2D = GetNodeOrNull<MeshInstance2D>("MeshInstance2D");
-    OverlayMeshInstance2D = GetNodeOrNull<MeshInstance2D>("OverlayMeshInstance2D");
     
     _camera2D = GetNodeOrNull<UvCamera2D>("Camera2D");
         
@@ -77,11 +93,6 @@ public partial class HexasphereProjectorController : Node2D
     {
         var mesh = new MeshInstance2D { Name = "MeshInstance2D" };
         AddChild(mesh);
-    }
-    if (GetNodeOrNull<MeshInstance2D>("OverlayMeshInstance2D") == null)
-    {
-        var overlay = new MeshInstance2D { Name = "OverlayMeshInstance2D" };
-        AddChild(overlay);
     }
     if (GetNodeOrNull<UvCamera2D>("Camera2D") == null)
     {
@@ -143,13 +154,11 @@ public partial class HexasphereProjectorController : Node2D
         {
             if (MeshInstance2D.Mesh is ArrayMesh old)
                 old.Dispose();
-            if (OverlayMeshInstance2D?.Mesh is ArrayMesh oldOverlay)
-                oldOverlay.Dispose();
-            OverlayMeshInstance2D.Mesh = null;
 
             _hexasphere = hexasphere;
             _lastMapSize = mapSize;
             _selectedTile = -1;
+            _hoveredTile = -1;
 
             if (_hasCachedGeometry && _cachedGeomHexasphere == hexasphere && _cachedGeomMapSize == mapSize)
                 BuildMeshFromCache(colors, mapSize);
@@ -351,6 +360,12 @@ public partial class HexasphereProjectorController : Node2D
         var material = new ShaderMaterial();
         material.Shader = _uvTileColorsShader;
         material.SetShaderParameter("tile_colors", _tileColorTexture);
+        material.SetShaderParameter("tile_count", tileCount);
+        material.SetShaderParameter("tex_width", _texWidth);
+        material.SetShaderParameter("hover_idx", -1);
+        material.SetShaderParameter("selected_idx", -1);
+        material.SetShaderParameter("selected_color", new Vector4(ClickColor.R, ClickColor.G, ClickColor.B, ClickColor.A));
+        material.SetShaderParameter("hover_color", new Vector4(HoverColor.R, HoverColor.G, HoverColor.B, HoverColor.A));
         MeshInstance2D.Material = material;
 
         if (colors != null)
@@ -486,119 +501,25 @@ public partial class HexasphereProjectorController : Node2D
         return -1;
     }
 
-    private void RebuildSelectionOverlay(int selectedTile)
+    private void UpdateShaderSelection()
     {
-        if (OverlayMeshInstance2D == null) return;
-        
-        if (selectedTile < 0 || _hexasphere == null)
-        {
-            OverlayMeshInstance2D.Mesh = null;
-            return;
-        }
+        var material = MeshInstance2D?.Material as ShaderMaterial;
+        if (material == null) return;
 
-        var st = new SurfaceTool();
-        st.Begin(Mesh.PrimitiveType.Triangles);
-
-        if (IsPoleCapTile(selectedTile))
-        {
-            EmitOverlayPoleCapTile(st, selectedTile, _lastMapSize);
-        }
-        else
-        {
-            Vector3[] pts = _hexasphere.GetTilePoints(selectedTile);
-            int n = pts.Length;
-            if (n < 3) return;
-
-            Vector2[] uvs = ComputeTileUvs(selectedTile);
-
-            // Clip fan triangles against [0,1]x[0,1]
-            Vector2 center = uvs[0];
-            for (int i = 0; i < n; i++)
-            {
-                int next = (i + 1) % n;
-                var clipped = ClipTriangleToRect(center, uvs[i + 1], uvs[next + 1]);
-                if (clipped.Count >= 3)
-                {
-                    for (int j = 1; j < clipped.Count - 1; j++)
-                    {
-                        var p0 = UvToScreen(clipped[0], _lastMapSize);
-                        var p1 = UvToScreen(clipped[j], _lastMapSize);
-                        var p2 = UvToScreen(clipped[j + 1], _lastMapSize);
-
-                        st.SetColor(SelectionColor);
-                        st.AddVertex(new Vector3(p0.X, p0.Y, 0));
-                        st.SetColor(SelectionColor);
-                        st.AddVertex(new Vector3(p1.X, p1.Y, 0));
-                        st.SetColor(SelectionColor);
-                        st.AddVertex(new Vector3(p2.X, p2.Y, 0));
-                    }
-                }
-            }
-        }
-
-        if (OverlayMeshInstance2D.Mesh is ArrayMesh oldMesh)
-            oldMesh.Dispose();
-        OverlayMeshInstance2D.Mesh = st.Commit();
+        material.SetShaderParameter("selected_idx", IsClickVisualEnabled ? _selectedTile : -1);
+        material.SetShaderParameter("hover_idx", IsHoverVisualEnabled ? _hoveredTile : -1);
+        material.SetShaderParameter("selected_color", new Vector4(ClickColor.R, ClickColor.G, ClickColor.B, ClickColor.A));
+        material.SetShaderParameter("hover_color", new Vector4(HoverColor.R, HoverColor.G, HoverColor.B, HoverColor.A));
     }
 
-    private void EmitOverlayPoleCapTile(SurfaceTool st, int tileIndex, Vector2 mapSize)
+    /// <summary>
+    /// Updates the selection and hover indices on the shader.
+    /// </summary>
+    public virtual void SetSelection(int selectedIdx, int hoveredIdx)
     {
-        Vector3[] pts = _hexasphere.GetTilePoints(tileIndex);
-        Vector3 centerPos = _hexasphere.GetTileCenter(tileIndex);
-        int n = pts.Length;
-
-        float poleV = centerPos.Y > 0 ? 0f : 1f;
-
-        var ringUv = new Vector2[n];
-        for (int i = 0; i < n; i++)
-            ringUv[i] = HexasphereUvProjector.CalculateUv(pts[i]);
-
-        int[] order = new int[n];
-        for (int i = 0; i < n; i++) order[i] = i;
-        System.Array.Sort(order, (a, b) => ringUv[a].X.CompareTo(ringUv[b].X));
-
-        for (int k = 0; k < n; k++)
-        {
-            int i0 = order[k];
-            int i1 = order[(k + 1) % n];
-
-            float u0 = ringUv[i0].X, v0 = ringUv[i0].Y;
-            float u1 = ringUv[i1].X, v1 = ringUv[i1].Y;
-            if (k == n - 1) u1 += 1f;
-
-            // Clip pole quad against [0,1]x[0,1] bounds
-            EmitClippedOverlayPoleQuad(st, u0, v0, u1, v1, poleV, mapSize);
-        }
-    }
-
-    private void EmitClippedOverlayPoleQuad(SurfaceTool st, float u0, float v0, float u1, float v1, float poleV, Vector2 mapSize)
-    {
-        // Quad vertices: (u0,v0), (u1,v0), (u1,poleV), (u0,poleV)
-        var quad = new List<Vector2>
-        {
-            new Vector2(u0, v0),
-            new Vector2(u1, v0),
-            new Vector2(u1, poleV),
-            new Vector2(u0, poleV)
-        };
-
-        var clipped = ClipPolygonToRect(quad);
-        if (clipped.Count < 3) return;
-
-        // Fan-triangulate from first vertex
-        for (int j = 1; j < clipped.Count - 1; j++)
-        {
-            var p0 = UvToScreen(clipped[0], mapSize);
-            var p1 = UvToScreen(clipped[j], mapSize);
-            var p2 = UvToScreen(clipped[j + 1], mapSize);
-
-            st.SetColor(SelectionColor);
-            st.AddVertex(new Vector3(p0.X, p0.Y, 0));
-            st.SetColor(SelectionColor);
-            st.AddVertex(new Vector3(p1.X, p1.Y, 0));
-            st.SetColor(SelectionColor);
-            st.AddVertex(new Vector3(p2.X, p2.Y, 0));
-        }
+        _selectedTile = selectedIdx;
+        _hoveredTile = hoveredIdx;
+        UpdateShaderSelection();
     }
 
     private bool IsPoleCapTile(int tileIndex)
@@ -689,7 +610,7 @@ public partial class HexasphereProjectorController : Node2D
     public override void _UnhandledInput(InputEvent @event)
     {
         if (!Visible) return;
-        
+
         if (@event.IsActionPressed("ui_close_uv_map"))
         {
             Visible = false;
@@ -701,27 +622,41 @@ public partial class HexasphereProjectorController : Node2D
             return;
         }
 
-        if (@event is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left })
-            return;
-
         Vector2 pos = ToLocal(GetGlobalMousePosition());
+        bool inBounds = pos.Y >= 0 && pos.Y <= _lastMapSize.Y && pos.X >= 0 && pos.X <= _lastMapSize.X;
 
-        if (pos.Y < 0 || pos.Y > _lastMapSize.Y)
-            return;
+        if (@event is InputEventMouseMotion && IsHoverEnabled)
+        {
+            int newHover = -1;
+            if (inBounds)
+                newHover = HitTest(pos);
 
-        int hit = HitTest(pos);
+            if (newHover != _hoveredTile)
+            {
+                _hoveredTile = newHover;
+                UpdateShaderSelection();
+                EmitSignal(SignalName.TileHovered, _hoveredTile);
+            }
+        }
 
-        if (hit == _selectedTile) return;
+        if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } && IsClickEnabled)
+        {
+            if (!inBounds) return;
 
-        _selectedTile = hit;
-        RebuildSelectionOverlay(hit);
+            int hit = HitTest(pos);
 
-        if (hit >= 0)
-            EmitSignal(SignalName.TileClicked, hit);
-        else
-            EmitSignal(SignalName.TileDeselected);
+            if (hit == _selectedTile) return;
 
-        GetViewport().SetInputAsHandled();
+            _selectedTile = hit;
+            UpdateShaderSelection();
+
+            if (hit >= 0)
+                EmitSignal(SignalName.TileClicked, hit);
+            else
+                EmitSignal(SignalName.TileDeselected);
+
+            GetViewport().SetInputAsHandled();
+        }
     }
 
     private static bool IsPointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)

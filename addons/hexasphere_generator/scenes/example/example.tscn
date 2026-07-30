@@ -12,10 +12,10 @@ script = ExtResource("1_ejjd7")
 
 [node name="Hexasphere" type="Node3D" parent="." unique_id=798022267]
 script = ExtResource("2_t0nab")
+SubDivision = 300
 IsEmissive = true
 IsBordering = false
 UvProjectorPath = NodePath("../HexasphereUvProjector")
 metadata/_custom_type_script = "uid://b426dtntimedh"
 
 [node name="HexasphereUvProjector" parent="." unique_id=1274967106 instance=ExtResource("3_thwts")]
-SelectionColor = Color(0.9561879, 0.9569451, 0.9696234, 1)

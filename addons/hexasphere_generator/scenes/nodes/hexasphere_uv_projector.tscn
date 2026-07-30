@@ -7,11 +7,8 @@
 visible = false
 script = ExtResource("1_el1cy")
 MeshInstance2DPath = NodePath("MeshInstance2D")
-OverlayMeshInstance2DPath = NodePath("OverlayMeshInstance2D")
 
 [node name="MeshInstance2D" type="MeshInstance2D" parent="." unique_id=874300943]
-
-[node name="OverlayMeshInstance2D" type="MeshInstance2D" parent="." unique_id=1652012965]
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1608389104]
 script = ExtResource("2_6xkgn")

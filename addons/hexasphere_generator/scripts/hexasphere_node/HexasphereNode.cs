@@ -150,7 +150,6 @@ public partial class HexasphereNode : Node3D
             {
                 UvProjector.ProjectionClosed += OnProjectionClosed;
             }
-
         }
 
         if (_shouldAutoGenerate)
@@ -289,7 +288,12 @@ virtual protected void OnShaderReady()
         return;
     }
 
+    UvProjector.TileClicked += OnUvTileClicked;
+    UvProjector.TileDeselected += OnUvTileDeselected;
+    UvProjector.TileHovered += OnUvTileHovered;
+
     UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
+    UvProjector.SetSelection(_selectedTileIndex, _hoveredTileIndex);
     UvProjector.Visible = true;
     UvProjector.ProcessMode = ProcessModeEnum.Always;
 
@@ -304,8 +308,43 @@ virtual protected void OnShaderReady()
     }
 }
 
+    private void OnUvTileClicked(int tileIndex)
+    {
+        _selectedTileIndex = tileIndex;
+        EmitSignal(SignalName.TileClicked, tileIndex, GetTileCenter(tileIndex));
+        VisualController.SetSelection(
+            IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+            IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+
+        HexasphereInputRouter.NotifySelectionChanged(this);
+    }
+
+    private void OnUvTileDeselected()
+    {
+        _selectedTileIndex = -1;
+        EmitSignal(SignalName.TileDeselected);
+        VisualController.SetSelection(
+            IsClickVisualEnabled ? ClickColor : null, -1,
+            IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+    }
+
+    private void OnUvTileHovered(int tileIndex)
+    {
+        _hoveredTileIndex = tileIndex;
+        VisualController.SetSelection(
+            IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+            IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+    }
+
     private void OnProjectionClosed()
     {
+        if (UvProjector != null)
+        {
+            UvProjector.TileClicked -= OnUvTileClicked;
+            UvProjector.TileDeselected -= OnUvTileDeselected;
+            UvProjector.TileHovered -= OnUvTileHovered;
+        }
+
         HexasphereInputRouter.ExitUvMode();
         HexasphereInputRouter.OnUvProjectionClosed(this);
     }
@@ -403,6 +442,7 @@ virtual protected void OnShaderReady()
                     IsClickVisualEnabled ? ClickColor : null, -1,
                     IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
+            SyncUvProjectorSelection();
             GetViewport().SetInputAsHandled();
         }
 
@@ -575,7 +615,14 @@ virtual protected void OnShaderReady()
             VisualController.SetSelection(
                 IsClickVisualEnabled ? ClickColor : null, -1,
                 IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+            SyncUvProjectorSelection();
         }
+    }
+
+    private void SyncUvProjectorSelection()
+    {
+        if (UvProjector != null && UvProjector.Visible)
+            UvProjector.SetSelection(_selectedTileIndex, -1);
     }
 
     /// <summary>Returns the currently selected tile index, or -1 if none selected.</summary>
