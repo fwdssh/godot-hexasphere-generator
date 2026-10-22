@@ -5,7 +5,10 @@
 - [x] Make generation controllable and expose its state: not started, generating, ready, failed, and cancelled. Provide generation/restart/cancellation entry points and lifecycle signals that can be used from C# and GDScript.
 - [x] Handle node removal, repeated generation, stale worker results, errors, and native resource ownership safely. Capture generation parameters per request and apply only the current request's result. Reuse the cancellation/request-ID approach from `planet-generator` while preserving custom cell-data and visual extension points.
 - [x] Report progress by actual generation stages and measure main-thread mesh finalization at high subdivisions before deciding which work to move or split.
-- [ ] Reduce main-thread finalization pauses at high subdivisions. Native `ArrayMesh` construction, spatial indexing and material/border setup still run on the main thread; use the stage/mesh timing measurements to decide which preparation to move or apply incrementally.
+- [x] Reduce main-thread finalization pauses by preparing the default spatial index and deduplicated border geometry on the request's worker. Preserve cancellation, custom generation/finalization hooks and the standalone border API; verify the improvement with repeated graphics measurements.
+- [x] Separate native CPU sphere-mesh array preparation from `ArrayMesh` resource creation. Prepare arrays on the request worker, preserve direct `BuildMesh()` and old-binary fallbacks, invalidate on regeneration and release staging after application; measure both phases separately.
+- [x] Spread large sphere-mesh surface creation across frames with a configurable soft per-node budget and target cells per surface. Measure draw calls and time to Ready, preserve cancellation/custom finalization and the standalone single-surface API, and cap surfaces to the engine limit.
+- [ ] Investigate the remaining final-frame border/material/color upload pause. Compare incremental border upload against its added surfaces and time to Ready; sphere upload budgeting does not cover that final visual setup or provide a global scene budget.
 
 ## Installation and release documentation
 

@@ -2,10 +2,13 @@
 #define HEXASPHERE_NATIVE_HEXASPHERE_H
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <memory>
+#include <vector>
 
 using namespace godot;
 
@@ -21,6 +24,16 @@ class NativeHexasphere : public RefCounted
 
 private:
     std::unique_ptr<Hexasphere> _hexasphere;
+    Array _prepared_mesh_arrays;
+    PackedInt32Array _prepared_tile_vertex_counts;
+    PackedInt32Array _prepared_tile_vertex_indices;
+    double _mesh_array_preparation_ms = 0.0;
+    std::vector<Array> _prepared_mesh_chunks;
+    int _next_mesh_chunk = 0;
+
+    void clear_mesh_preparation();
+    Array make_mesh_arrays(int first_tile, int tile_count,
+        PackedInt32Array *vertex_counts = nullptr, PackedInt32Array *vertex_indices = nullptr) const;
 
 protected:
     static void _bind_methods();
@@ -97,10 +110,25 @@ public:
     /// Builds a complete ArrayMesh for the entire sphere, including vertex positions,
     /// normals, and UV2 data (tile index encoded in UV2.x). Returns the mesh and per-tile
     /// vertex/index metadata.
-    /// Dictionary keys: "mesh", "tile_vertex_counts", "tile_vertex_indices".
+    /// Dictionary keys: "mesh", "tile_vertex_counts", "tile_vertex_indices",
+    /// "array_preparation_milliseconds", "surface_creation_milliseconds", "used_prepared_arrays".
     /// </summary>
     /// <returns>Dictionary containing an ArrayMesh reference and per-tile vertex metadata.</returns>
-    Dictionary build_mesh() const;
+    Dictionary build_mesh();
+
+    /// <summary>
+    /// Prepares CPU-only mesh arrays for the current topology without creating
+    /// rendering resources. Safe on the instance's owning generation worker.
+    /// build_mesh() consumes them; generate() invalidates them.
+    /// </summary>
+    void prepare_mesh();
+
+    // CPU-only preparation, capped to the engine's surface-count limit.
+    int prepare_mesh_chunks(int tiles_per_chunk);
+    int get_prepared_mesh_chunk_count() const;
+    // Adds exactly one surface and releases that chunk's CPU arrays. Returns
+    // remaining chunk count, or -1 for an invalid target/preparation state.
+    int append_mesh_chunk(const Ref<ArrayMesh> &mesh);
 };
 
 #endif // HEXASPHERE_NATIVE_HEXASPHERE_H

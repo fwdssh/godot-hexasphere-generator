@@ -1,5 +1,6 @@
 using Godot;
 using System.Collections.Generic;
+using System.Threading;
 
 /// <summary>
 /// Renders the borders between adjacent hexagonal tiles using a line mesh.
@@ -11,6 +12,12 @@ public class PlanetBorderRenderer : System.IDisposable
     private ShaderMaterial _borderMaterial;
     private Color _borderColor;
     private ArrayMesh _mesh;
+    private PreparedGeometry _preparedGeometry;
+
+    // CPU arrays and their source identity; no rendering resources or scene
+    // nodes are created until BuildStaticBorders runs on the main thread.
+    internal sealed record PreparedGeometry(Vector3[] Positions, Vector2[] TilePairs,
+        NativeHexasphere Source, long SourceVersion);
 
     /// <summary>
     /// Creates a new border renderer and adds the border mesh as a child of the specified parent node.
@@ -21,6 +28,11 @@ public class PlanetBorderRenderer : System.IDisposable
         _bordersMeshInstance      = new MeshInstance3D();
         _bordersMeshInstance.Name = "BordersMesh";
         parent.AddChild(_bordersMeshInstance);
+    }
+
+    internal PlanetBorderRenderer(Node3D parent, PreparedGeometry geometry) : this(parent)
+    {
+        _preparedGeometry = geometry;
     }
 
     /// <summary>Shows or hides the border mesh.</summary>
@@ -35,7 +47,51 @@ public class PlanetBorderRenderer : System.IDisposable
     /// <param name="borderShader">The shader to use for border rendering.</param>
     public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial, Shader borderShader)
     {
+        var geometry = _preparedGeometry;
+        _preparedGeometry = null;
+        // A custom finalization hook may replace or regenerate the native instance.
+        if (geometry != null && (!ReferenceEquals(geometry.Source, hexasphere)
+            || geometry.SourceVersion != hexasphere.GeometryVersion)) geometry = null;
+        geometry ??= PrepareGeometry(hexasphere, CancellationToken.None);
+
+        using var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = geometry.Positions;
+        arrays[(int)Mesh.ArrayType.TexUV2] = geometry.TilePairs;
+
+        var mesh = new ArrayMesh();
+        try
+        {
+            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
+
+            var shader = borderShader;
+            _borderMaterial?.Dispose();
+            _borderMaterial = new ShaderMaterial();
+            _borderMaterial.Shader = shader;
+
+            _borderMaterial.SetShaderParameter("tile_colors",
+                planetMaterial.GetShaderParameter("tile_colors"));
+            _borderMaterial.SetShaderParameter("tile_count",
+                planetMaterial.GetShaderParameter("tile_count"));
+            _borderMaterial.SetShaderParameter("tex_width",
+                planetMaterial.GetShaderParameter("tex_width"));
+            _borderMaterial.SetShaderParameter("selected_idx", -1);
+            _borderMaterial.SetShaderParameter("border_color", _borderColor);
+
+            _bordersMeshInstance.Mesh = mesh;
+            _mesh?.Dispose();
+            _mesh = mesh;
+            _bordersMeshInstance.MaterialOverride = _borderMaterial;
+        }
+        catch { mesh.Dispose(); throw; }
+    }
+
+    internal static PreparedGeometry PrepareGeometry(NativeHexasphere hexasphere, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        long sourceVersion = hexasphere.GeometryVersion;
         using var data = hexasphere.GetBorderData();
+        token.ThrowIfCancellationRequested();
         var positions = (Vector3[])data["positions"];
         var tileLineCounts = (int[])data["tile_line_counts"];
 
@@ -48,6 +104,7 @@ public class PlanetBorderRenderer : System.IDisposable
         int idx = 0;
         for (int i = 0; i < tileCount; i++)
         {
+            if ((i & 1023) == 0) token.ThrowIfCancellationRequested();
             int count = tileLineCounts[i];
             for (int j = 0; j < count; j += 2)
             {
@@ -74,31 +131,8 @@ public class PlanetBorderRenderer : System.IDisposable
             idx += count;
         }
 
-        using var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = vertPositions.ToArray();
-        arrays[(int)Mesh.ArrayType.TexUV2] = uv2.ToArray();
-
-        var mesh = new ArrayMesh();
-        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
-
-        var shader = borderShader;
-        _borderMaterial = new ShaderMaterial();
-        _borderMaterial.Shader = shader;
-
-        _borderMaterial.SetShaderParameter("tile_colors",
-            planetMaterial.GetShaderParameter("tile_colors"));
-        _borderMaterial.SetShaderParameter("tile_count",
-            planetMaterial.GetShaderParameter("tile_count"));
-        _borderMaterial.SetShaderParameter("tex_width",
-            planetMaterial.GetShaderParameter("tex_width"));
-        _borderMaterial.SetShaderParameter("selected_idx", -1);
-        _borderMaterial.SetShaderParameter("border_color", _borderColor);
-
-        _bordersMeshInstance.Mesh             = mesh;
-        _mesh?.Dispose();
-        _mesh = mesh;
-        _bordersMeshInstance.MaterialOverride = _borderMaterial;
+        token.ThrowIfCancellationRequested();
+        return new PreparedGeometry(vertPositions.ToArray(), uv2.ToArray(), hexasphere, sourceVersion);
     }
 
     /// <summary>
@@ -121,6 +155,7 @@ public class PlanetBorderRenderer : System.IDisposable
     /// <summary>Releases the border node, mesh and material owned by this renderer.</summary>
     public void Dispose()
     {
+        _preparedGeometry = null;
         if (GodotObject.IsInstanceValid(_bordersMeshInstance))
         {
             _bordersMeshInstance.Mesh = null;

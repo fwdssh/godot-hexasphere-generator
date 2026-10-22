@@ -31,6 +31,8 @@ public sealed class HexasphereGenerationSettings
     public Godot.Color BorderColor { get; }
     public Godot.Shader ColorsShader { get; }
     public Godot.Shader BordersShader { get; }
+    public float MeshUploadBudgetMilliseconds { get; }
+    public int MeshUploadTilesPerSurface { get; }
 
     internal HexasphereGenerationSettings(HexasphereNode node)
     {
@@ -43,5 +45,7 @@ public sealed class HexasphereGenerationSettings
         BorderColor = node.BorderColor;
         ColorsShader = node.ColorsShader;
         BordersShader = node.BordersShader;
+        MeshUploadBudgetMilliseconds = node.MeshUploadBudgetMilliseconds;
+        MeshUploadTilesPerSurface = node.MeshUploadTilesPerSurface;
     }
 }

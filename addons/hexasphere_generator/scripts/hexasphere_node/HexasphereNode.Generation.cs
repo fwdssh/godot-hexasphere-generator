@@ -16,14 +16,20 @@ public partial class HexasphereNode
     [ExportGroup("Generation")]
     /// <summary>Generate automatically in _Ready. Disable to start explicitly from code.</summary>
     [Export] public bool AutoGenerate { get => _shouldAutoGenerate; set => _shouldAutoGenerate = value; }
+    /// <summary>Soft per-node main-thread upload budget. Zero keeps one synchronous surface.</summary>
+    [Export(PropertyHint.Range, "0,16,0.5,or_greater")] public float MeshUploadBudgetMilliseconds { get; set; } = 4;
+    /// <summary>Target cells per surface. Raised automatically if needed to fit the engine's surface limit.</summary>
+    [Export(PropertyHint.Range, "1,65536,1,or_greater")] public int MeshUploadTilesPerSurface { get; set; } = 8192;
 
     public HexasphereGenerationState GenerationState { get; private set; }
     public HexasphereGenerationStage GenerationStage { get; private set; }
     public string LastGenerationError { get; private set; } = "";
     public int CompletedGenerationStages { get; private set; }
     public const int TotalGenerationStages = 4;
-    /// <summary>Synchronous native ArrayMesh build time; excludes topology, materials and borders.</summary>
+    /// <summary>Cumulative main-thread mesh build/upload work; excludes waiting between frames and other stages.</summary>
     public double LastMeshBuildMilliseconds { get; private set; }
+    public int CompletedMeshUploadSurfaces { get; private set; }
+    public int TotalMeshUploadSurfaces { get; private set; }
 
     /// <summary>Captured base settings for the current extension hook.</summary>
     protected HexasphereGenerationSettings CurrentGenerationSettings =>
@@ -56,6 +62,12 @@ public partial class HexasphereNode
         public NativeHexasphere Native;
         public Vector3[] Centers;
         public ICellData[] Cells;
+        public PreparedSpatialIndex SpatialIndex;
+        public PlanetBorderRenderer.PreparedGeometry Borders;
+        public int MeshChunksRemaining;
+        public ArrayMesh UploadMesh;
+        public NativeHexasphere UploadSource;
+        public long UploadVersion;
 
         public GenerationRequest(long id, HexasphereGenerationSettings settings)
         {
@@ -86,6 +98,8 @@ public partial class HexasphereNode
     public int GetCompletedGenerationStages() => CompletedGenerationStages;
     public int GetTotalGenerationStages() => TotalGenerationStages;
     public double GetLastMeshBuildMilliseconds() => LastMeshBuildMilliseconds;
+    public int GetCompletedMeshUploadSurfaces() => CompletedMeshUploadSurfaces;
+    public int GetTotalMeshUploadSurfaces() => TotalMeshUploadSurfaces;
 
     /// <summary>Starts from current settings, replacing an active request. Call from the main thread.</summary>
     public bool GeneratePlanet()
@@ -171,8 +185,11 @@ public partial class HexasphereNode
                 // Running workers dispose their own native object after returning.
                 if (request.Published)
                 {
+                    request.UploadMesh?.Dispose(); request.UploadMesh = null;
+                    request.UploadSource = null;
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
+                    request.SpatialIndex = null; request.Borders = null;
                 }
                 if (!request.WorkerStarted) request.DisposeCancellation();
             }
@@ -195,6 +212,8 @@ public partial class HexasphereNode
         if (!CanContinueAfterCleanup(beforeCleanup)) return;
         LastGenerationError = "";
         LastMeshBuildMilliseconds = 0;
+        CompletedMeshUploadSurfaces = 0;
+        TotalMeshUploadSurfaces = 0;
         GenerationStage = HexasphereGenerationStage.NotStarted;
         CompletedGenerationStages = 0;
         GenerationRequest request;
@@ -207,6 +226,9 @@ public partial class HexasphereNode
                 throw new ArgumentOutOfRangeException(nameof(SubDivision), "SubDivision must be positive and fit the mesh's 32-bit vertex counts.");
             if (!float.IsFinite(settings.HexSize) || settings.HexSize < 0.1f || settings.HexSize > 1)
                 throw new ArgumentOutOfRangeException(nameof(HexSize), "HexSize must be finite and within 0.1..1.");
+            if (!float.IsFinite(settings.MeshUploadBudgetMilliseconds) || settings.MeshUploadBudgetMilliseconds < 0
+                || settings.MeshUploadTilesPerSurface < 1)
+                throw new ArgumentOutOfRangeException(nameof(MeshUploadBudgetMilliseconds), "Supply a finite nonnegative upload budget and positive tiles per surface.");
             if (settings.ColorsShader == null || (settings.Borders && settings.BordersShader == null))
                 throw new InvalidOperationException("Supply the color shader and, when borders are enabled, the border shader.");
             lock (_generationLock)
@@ -233,6 +255,17 @@ public partial class HexasphereNode
                 request.Token.ThrowIfCancellationRequested();
                 if (request.Centers == null || request.Cells == null)
                     throw new InvalidOperationException("GenerateInBackground overrides must call base or PublishGenerationResult.");
+                // Prepare request-owned CPU data without touching live node/controller state.
+                // Run after the complete custom hook, including custom published results.
+                if (request.Settings.MeshUploadBudgetMilliseconds > 0
+                    && request.Centers.Length > request.Settings.MeshUploadTilesPerSurface)
+                    request.MeshChunksRemaining = request.Native.PrepareMeshChunks(request.Settings.MeshUploadTilesPerSurface);
+                if (request.MeshChunksRemaining == 0) request.Native.PrepareMesh();
+                request.Token.ThrowIfCancellationRequested();
+                request.SpatialIndex = PrepareSpatialIndex(request.Centers, request.Token);
+                if (request.Settings.Borders)
+                    request.Borders = PlanetBorderRenderer.PrepareGeometry(request.Native, request.Token);
+                request.Token.ThrowIfCancellationRequested();
                 lock (_generationLock)
                 {
                     if (_generationShuttingDown || _activeGeneration != request) return;
@@ -254,6 +287,7 @@ public partial class HexasphereNode
                 {
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
+                    request.SpatialIndex = null; request.Borders = null;
                 }
                 request.DisposeCancellation();
             }
@@ -311,23 +345,71 @@ public partial class HexasphereNode
             {
                 if (message.Error != null) { FailGeneration(request, new InvalidOperationException(message.Error)); continue; }
                 if (!ReportGenerationStage(request, message.Stage) || !message.Completed) continue;
-                // Transfer published data to the existing finalization extension point.
-                lock (_generationLock)
+                if (request.MeshChunksRemaining > 0)
                 {
-                    _pendingHexasphere = request.Native;
-                    request.Native = null;
-                    _pendingCenters = request.Centers;
-                    _pendingCellDatas = request.Cells;
-                    request.Centers = null;
-                    request.Cells = null;
+                    request.UploadMesh = new ArrayMesh();
+                    request.UploadSource = request.Native;
+                    request.UploadVersion = request.Native.GeometryVersion;
+                    TotalMeshUploadSurfaces = request.MeshChunksRemaining;
                 }
-                request.Finalizing = true;
-                try { FinalizePlanet(); }
-                finally { request.Finalizing = false; }
-                if (request.ShaderReadyPending && IsCurrentGeneration(request)) OnGenerationShaderReady();
+                else FinalizePublishedGeneration(request);
             }
             catch (Exception error) { FailGeneration(request, error); }
         }
+        var active = _activeGeneration;
+        if (IsCurrentGeneration(active) && active.UploadMesh != null && active.Native != null)
+        {
+            try
+            {
+                if (active.MeshChunksRemaining > 0) AdvanceMeshUpload(active);
+                else FinalizePublishedGeneration(active);
+            }
+            catch (Exception error) { FailGeneration(active, error); }
+        }
+    }
+
+    private void FinalizePublishedGeneration(GenerationRequest request)
+    {
+        // Preserve the complete main-thread finalization extension point after uploads.
+        _pendingHexasphere = request.Native;
+        request.Native = null;
+        _pendingCenters = request.Centers;
+        _pendingCellDatas = request.Cells;
+        request.Centers = null;
+        request.Cells = null;
+        request.Finalizing = true;
+        try { FinalizePlanet(); }
+        finally
+        {
+            request.Finalizing = false;
+            // Custom finalizers may supply their own mesh without calling base.
+            request.UploadMesh?.Dispose(); request.UploadMesh = null;
+            request.UploadSource = null;
+        }
+        if (request.ShaderReadyPending && IsCurrentGeneration(request)) OnGenerationShaderReady();
+    }
+
+    private void AdvanceMeshUpload(GenerationRequest request)
+    {
+        var frame = Stopwatch.StartNew();
+        do
+        {
+            var chunk = Stopwatch.StartNew();
+            request.MeshChunksRemaining = request.Native.AppendMeshChunk(request.UploadMesh);
+            double elapsed = chunk.Elapsed.TotalMilliseconds;
+            LastMeshBuildMilliseconds += elapsed;
+            CompletedMeshUploadSurfaces++;
+            if (!IsCurrentGeneration(request)) return;
+            if (request.MeshChunksRemaining == 0)
+            {
+                // Material/border/color work starts on a later frame, rather than
+                // accumulating on top of the last surface upload.
+                return;
+            }
+            // Leave room for another similarly sized chunk; one API call itself
+            // cannot be interrupted, so this is a soft budget rather than a cap.
+            if (frame.Elapsed.TotalMilliseconds + elapsed >= request.Settings.MeshUploadBudgetMilliseconds) return;
+        } while (IsCurrentGeneration(request));
     }
 
     private void FinalizeGenerationRequest()
@@ -343,18 +425,33 @@ public partial class HexasphereNode
         _pendingCellDatas = null;
         if (!GodotObject.IsInstanceValid(VisualController))
             throw new InvalidOperationException("The visual controller was removed during generation.");
-        var clock = Stopwatch.StartNew();
-        using var result = _hexasphere.BuildMesh();
-        LastMeshBuildMilliseconds = clock.Elapsed.TotalMilliseconds;
-        var mesh = (ArrayMesh)result["mesh"];
+        ArrayMesh mesh;
+        if (request.UploadMesh != null && ReferenceEquals(request.UploadSource, _hexasphere)
+            && request.UploadVersion == _hexasphere.GeometryVersion)
+        {
+            mesh = request.UploadMesh;
+            request.UploadMesh = null;
+        }
+        else
+        {
+            request.UploadMesh?.Dispose(); request.UploadMesh = null;
+            var clock = Stopwatch.StartNew();
+            using var result = _hexasphere.BuildMesh();
+            LastMeshBuildMilliseconds += clock.Elapsed.TotalMilliseconds;
+            mesh = (ArrayMesh)result["mesh"];
+        }
+        request.UploadSource = null;
         try
         {
             BuildSpatialIndex(centers);
+            request.SpatialIndex = null;
             if (!ReportGenerationStage(request, HexasphereGenerationStage.PreparingVisuals)) { mesh.Dispose(); return; }
             var settings = request.Settings;
             VisualController.SetNativeHexasphere(_hexasphere);
             VisualController.ShaderReady += OnGenerationShaderReady;
             VisualController.ShaderInitializationFailed += OnGenerationShaderFailed;
+            VisualController.SetPreparedBorders(request.Borders);
+            request.Borders = null;
             VisualController.ApplyGenerated(mesh, settings.Borders, settings.ColorsShader, settings.BordersShader);
             if (IsCurrentGeneration(request)) VisualController.SetBorderColor(settings.BorderColor);
         }

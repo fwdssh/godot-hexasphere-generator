@@ -4,6 +4,9 @@
 #include "point.h"
 #include "face.h"
 #include <godot_cpp/classes/array_mesh.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
+#include <algorithm>
+#include <chrono>
 
 
 /// <summary>
@@ -27,6 +30,10 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("get_build_data"), &NativeHexasphere::get_build_data);
     ClassDB::bind_method(D_METHOD("get_border_data"), &NativeHexasphere::get_border_data);
     ClassDB::bind_method(D_METHOD("build_mesh"), &NativeHexasphere::build_mesh);
+    ClassDB::bind_method(D_METHOD("prepare_mesh"), &NativeHexasphere::prepare_mesh);
+    ClassDB::bind_method(D_METHOD("prepare_mesh_chunks", "tiles_per_chunk"), &NativeHexasphere::prepare_mesh_chunks);
+    ClassDB::bind_method(D_METHOD("get_prepared_mesh_chunk_count"), &NativeHexasphere::get_prepared_mesh_chunk_count);
+    ClassDB::bind_method(D_METHOD("append_mesh_chunk", "mesh"), &NativeHexasphere::append_mesh_chunk);
     ClassDB::bind_method(D_METHOD("get_all_tile_neighbors"), &NativeHexasphere::get_all_tile_neighbors);
 }
 
@@ -35,7 +42,18 @@ void NativeHexasphere::_bind_methods()
 /// </summary>
 void NativeHexasphere::generate(float radius, int divisions, float hexSize)
 {
+    clear_mesh_preparation();
     _hexasphere = std::make_unique<Hexasphere>(radius, divisions, hexSize);
+}
+
+void NativeHexasphere::clear_mesh_preparation()
+{
+    _prepared_mesh_arrays = Array();
+    _prepared_tile_vertex_counts = PackedInt32Array();
+    _prepared_tile_vertex_indices = PackedInt32Array();
+    _mesh_array_preparation_ms = 0.0;
+    _prepared_mesh_chunks.clear();
+    _next_mesh_chunk = 0;
 }
 
 /// <summary>
@@ -252,19 +270,25 @@ Dictionary NativeHexasphere::get_border_data() const
 /// for tile-specific processing on the C# side.
 /// Dictionary keys: "mesh" (ArrayMesh), "tile_vertex_counts", "tile_vertex_indices".
 /// </summary>
-Dictionary NativeHexasphere::build_mesh() const
+void NativeHexasphere::prepare_mesh()
 {
-    Dictionary result;
-    if (!_hexasphere || _hexasphere->get_tile_count() == 0)
-    {
-        return result;
-    }
+    if (!_prepared_mesh_arrays.is_empty() || !_hexasphere || _hexasphere->get_tile_count() == 0)
+        return;
+    const auto start = std::chrono::steady_clock::now();
+    clear_mesh_preparation();
+    _prepared_mesh_arrays = make_mesh_arrays(0, _hexasphere->get_tile_count(),
+        &_prepared_tile_vertex_counts, &_prepared_tile_vertex_indices);
+    _mesh_array_preparation_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+}
 
+Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
+    PackedInt32Array *vertex_counts, PackedInt32Array *vertex_indices) const
+{
     const auto &tiles = _hexasphere->get_tiles();
-    int tileCount = _hexasphere->get_tile_count();
-
     int totalVertices = 0;
-    for (int t = 0; t < tileCount; t++)
+    const int end_tile = first_tile + tile_count;
+    for (int t = first_tile; t < end_tile; t++)
         totalVertices += tiles[t]->get_face_count() * 3;
 
     PackedVector3Array vertices;
@@ -274,22 +298,19 @@ Dictionary NativeHexasphere::build_mesh() const
     PackedVector2Array uv2s;
     uv2s.resize(totalVertices);
 
-    PackedInt32Array tileVertexCounts;
-    tileVertexCounts.resize(tileCount);
-    PackedInt32Array allIndices;
-    allIndices.resize(totalVertices);
+    if (vertex_counts) vertex_counts->resize(tile_count);
+    if (vertex_indices) vertex_indices->resize(totalVertices);
 
     int globalVertexIndex = 0;
     int indicesOffset = 0;
 
-    for (int t = 0; t < tileCount; t++)
+    for (int t = first_tile; t < end_tile; t++)
     {
         const auto &boundary = tiles[t]->get_boundary_points();
-        int ptCount = tiles[t]->get_boundary_count();
         const auto &tileFaceIndices = tiles[t]->get_face_indices();
         int faceCount = tiles[t]->get_face_count();
 
-        tileVertexCounts[t] = faceCount * 3;
+        if (vertex_counts) (*vertex_counts)[t - first_tile] = faceCount * 3;
         Vector2 tileUV(t, 0.0f);
 
         for (int f = 0; f < faceCount; f++)
@@ -308,27 +329,81 @@ Dictionary NativeHexasphere::build_mesh() const
                 vertices[vi] = pos;
                 normals[vi] = pos.normalized();
                 uv2s[vi] = tileUV;
-                allIndices[base + v] = vi;
+                if (vertex_indices) (*vertex_indices)[base + v] = vi;
             }
         }
 
         indicesOffset += faceCount * 3;
     }
 
-    Array surfaceArrays;
-    surfaceArrays.resize(Mesh::ARRAY_MAX);
-    surfaceArrays[Mesh::ARRAY_VERTEX] = vertices;
-    surfaceArrays[Mesh::ARRAY_NORMAL] = normals;
-    surfaceArrays[Mesh::ARRAY_TEX_UV2] = uv2s;
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = vertices;
+    arrays[Mesh::ARRAY_NORMAL] = normals;
+    arrays[Mesh::ARRAY_TEX_UV2] = uv2s;
+    return arrays;
+}
 
+int NativeHexasphere::prepare_mesh_chunks(int tiles_per_chunk)
+{
+    clear_mesh_preparation();
+    const int count = get_tile_count();
+    if (count == 0 || tiles_per_chunk <= 0) return 0;
+    // Large valid inputs must not exceed ArrayMesh's engine surface limit.
+    tiles_per_chunk = std::max(tiles_per_chunk, (count - 1) / RenderingServer::MAX_MESH_SURFACES + 1);
+    const auto start = std::chrono::steady_clock::now();
+    std::vector<Array> chunks;
+    for (int first = 0; first < count;)
+    {
+        const int size = std::min(tiles_per_chunk, count - first);
+        chunks.push_back(make_mesh_arrays(first, size));
+        first += size;
+    }
+    _prepared_mesh_chunks = std::move(chunks);
+    _mesh_array_preparation_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+    return get_prepared_mesh_chunk_count();
+}
+
+int NativeHexasphere::get_prepared_mesh_chunk_count() const
+{
+    return static_cast<int>(_prepared_mesh_chunks.size()) - _next_mesh_chunk;
+}
+
+int NativeHexasphere::append_mesh_chunk(const Ref<ArrayMesh> &mesh)
+{
+    if (mesh.is_null() || get_prepared_mesh_chunk_count() <= 0
+        || mesh->get_surface_count() >= RenderingServer::MAX_MESH_SURFACES) return -1;
+    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, _prepared_mesh_chunks[_next_mesh_chunk]);
+    _prepared_mesh_chunks[_next_mesh_chunk++] = Array();
+    const int remaining = get_prepared_mesh_chunk_count();
+    if (remaining == 0) clear_mesh_preparation();
+    return remaining;
+}
+
+Dictionary NativeHexasphere::build_mesh()
+{
+    Dictionary result;
+    const bool was_prepared = !_prepared_mesh_arrays.is_empty();
+    prepare_mesh();
+    if (_prepared_mesh_arrays.is_empty())
+        return result;
+
+    const auto start = std::chrono::steady_clock::now();
     Ref<ArrayMesh> mesh;
     mesh.instantiate();
-    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, surfaceArrays);
+    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, _prepared_mesh_arrays);
+    const double surface_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
 
     result["mesh"] = mesh;
-    result["tile_vertex_counts"] = tileVertexCounts;
-    result["tile_vertex_indices"] = allIndices;
-
+    result["tile_vertex_counts"] = _prepared_tile_vertex_counts;
+    result["tile_vertex_indices"] = _prepared_tile_vertex_indices;
+    result["array_preparation_milliseconds"] = _mesh_array_preparation_ms;
+    result["surface_creation_milliseconds"] = surface_ms;
+    result["used_prepared_arrays"] = was_prepared;
+    // CPU staging arrays should not live for the lifetime of the ready sphere.
+    clear_mesh_preparation();
     return result;
 }
 

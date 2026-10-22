@@ -12,6 +12,10 @@ public class NativeHexasphere : IDisposable
     private GodotObject _native;
     private bool _disposed;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    private long _geometryVersion;
+    private readonly bool _supportsMeshPreparation;
+    private readonly bool _supportsMeshChunks;
+    internal long GeometryVersion => Interlocked.Read(ref _geometryVersion);
 
     private static readonly StringName MethodGenerate = "generate";
     private static readonly StringName MethodGetTileCount = "get_tile_count";
@@ -21,6 +25,9 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodGetBuildData = "get_build_data";
     private static readonly StringName MethodGetBorderData = "get_border_data";
     private static readonly StringName MethodBuildMesh = "build_mesh";
+    private static readonly StringName MethodPrepareMesh = "prepare_mesh";
+    private static readonly StringName MethodPrepareMeshChunks = "prepare_mesh_chunks";
+    private static readonly StringName MethodAppendMeshChunk = "append_mesh_chunk";
     private static readonly StringName MethodGetAllTileCenters = "get_all_tile_centers";
     private static readonly StringName MethodGetAllTileNeighbors = "get_all_tile_neighbors";
 
@@ -35,6 +42,8 @@ public class NativeHexasphere : IDisposable
                 "NativeHexasphere GDExtension not found. Check that .gdextension is loaded and built for the current platform.");
 
         _native = ClassDB.Instantiate("NativeHexasphere").AsGodotObject();
+        _supportsMeshPreparation = _native.HasMethod(MethodPrepareMesh);
+        _supportsMeshChunks = _native.HasMethod(MethodPrepareMeshChunks) && _native.HasMethod(MethodAppendMeshChunk);
     }
 
     /// <summary>
@@ -61,6 +70,7 @@ public class NativeHexasphere : IDisposable
         try
         {
             _native.Call(MethodGenerate, radius, divisions, hexSize);
+            Interlocked.Increment(ref _geometryVersion);
         }
         finally
         {
@@ -155,7 +165,45 @@ public class NativeHexasphere : IDisposable
         }
     }
 
-    /// <summary>Builds and returns the final ArrayMesh from the generated data.</summary>
+    /// <summary>
+    /// Prepares native CPU mesh arrays without creating a renderer resource.
+    /// Returns false for an older native binary; BuildMesh retains its synchronous fallback.
+    /// </summary>
+    public virtual bool PrepareMesh()
+    {
+        if (!_supportsMeshPreparation) return false;
+        _semaphore.Wait();
+        try
+        {
+            _native.Call(MethodPrepareMesh);
+            return true;
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    /// <summary>Prepares bounded CPU surface arrays. Returns zero when unsupported.</summary>
+    public virtual int PrepareMeshChunks(int tilesPerSurface)
+    {
+        if (!_supportsMeshChunks) return 0;
+        _semaphore.Wait();
+        try { return (int)_native.Call(MethodPrepareMeshChunks, tilesPerSurface); }
+        finally { _semaphore.Release(); }
+    }
+
+    /// <summary>Uploads one prepared surface on the main thread and returns the remaining count.</summary>
+    public virtual int AppendMeshChunk(ArrayMesh mesh)
+    {
+        _semaphore.Wait();
+        try
+        {
+            int remaining = (int)_native.Call(MethodAppendMeshChunk, mesh);
+            if (remaining < 0) throw new InvalidOperationException("No valid prepared mesh chunk or target surface capacity.");
+            return remaining;
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    /// <summary>Builds an ArrayMesh, consuming prepared arrays or preparing them synchronously if needed.</summary>
     public virtual Dictionary BuildMesh()
     {
         _semaphore.Wait();

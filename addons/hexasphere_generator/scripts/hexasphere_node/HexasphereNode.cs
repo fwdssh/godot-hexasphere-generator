@@ -441,41 +441,62 @@ virtual protected void OnShaderReady()
 
     virtual protected void BuildSpatialIndex(Vector3[] centers)
     {
-        _tileDirs = new Vector3[centers.Length];
-        for (int i = 0; i < centers.Length; i++)
-        {
-            _tileDirs[i] = centers[i].Normalized();
-        }
-
-        // 0.35f empirically tuned for SubDivision=20; scales with sqrt(tile count) for roughly uniform bucket density
-        _bucketScale = Mathf.Sqrt(centers.Length) * 0.35f;
-
-        // Build spatial hash buckets
-        BuildSpatialBuckets();
+        var prepared = _activeGeneration?.SpatialIndex;
+        // Keep the virtual hook on the main thread. Custom calls with different
+        // centers still build their own index, as they did before preparation.
+        if (!MatchesPreparedIndex(prepared, centers))
+            prepared = PrepareSpatialIndex(centers, System.Threading.CancellationToken.None);
+        _tileDirs = prepared.Directions;
+        _bucketScale = prepared.Scale;
+        _spatialBuckets = prepared.Buckets;
     }
 
-    private Vector3I Quantize(Vector3 v)
+    private static bool MatchesPreparedIndex(PreparedSpatialIndex prepared, Vector3[] centers)
+    {
+        if (prepared == null || !ReferenceEquals(prepared.Centers, centers)) return false;
+        // Overrides may edit the supplied array in place before calling base.
+        // Checking directions avoids rebuilding the dictionary for unchanged data
+        // while retaining the old behavior for transformed centers.
+        for (int i = 0; i < centers.Length; i++)
+            if (centers[i].Normalized() != prepared.Directions[i]) return false;
+        return true;
+    }
+
+    private Vector3I Quantize(Vector3 v) => Quantize(v, _bucketScale);
+
+    private static Vector3I Quantize(Vector3 v, float scale)
     {
         return new Vector3I(
-            (int)Mathf.Round(v.X * _bucketScale),
-            (int)Mathf.Round(v.Y * _bucketScale),
-            (int)Mathf.Round(v.Z * _bucketScale)
+            (int)Mathf.Round(v.X * scale),
+            (int)Mathf.Round(v.Y * scale),
+            (int)Mathf.Round(v.Z * scale)
         );
     }
 
-    private void BuildSpatialBuckets()
+    private sealed record PreparedSpatialIndex(Vector3[] Centers, Vector3[] Directions,
+        float Scale, Dictionary<Vector3I, List<int>> Buckets);
+
+    private static PreparedSpatialIndex PrepareSpatialIndex(Vector3[] centers, System.Threading.CancellationToken token)
     {
-        _spatialBuckets = new Dictionary<Vector3I, List<int>>();
-        for (int i = 0; i < _tileDirs.Length; i++)
+        token.ThrowIfCancellationRequested();
+        var directions = new Vector3[centers.Length];
+        // Preserve the existing bucket density and quantization for picking.
+        float scale = Mathf.Sqrt(centers.Length) * 0.35f;
+        var buckets = new Dictionary<Vector3I, List<int>>();
+        for (int i = 0; i < centers.Length; i++)
         {
-            var key = Quantize(_tileDirs[i]);
-            if (!_spatialBuckets.TryGetValue(key, out var list))
+            if ((i & 1023) == 0) token.ThrowIfCancellationRequested();
+            directions[i] = centers[i].Normalized();
+            var key = Quantize(directions[i], scale);
+            if (!buckets.TryGetValue(key, out var list))
             {
                 list = new List<int>();
-                _spatialBuckets[key] = list;
+                buckets[key] = list;
             }
             list.Add(i);
         }
+        token.ThrowIfCancellationRequested();
+        return new PreparedSpatialIndex(centers, directions, scale, buckets);
     }
 
     virtual protected int FindTileIndexByDirection(Vector3 direction)

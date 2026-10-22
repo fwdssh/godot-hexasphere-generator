@@ -30,6 +30,12 @@ public partial class HexasphereVisualController : Node3D
     private bool _isBorderVisible = true;
     private byte[] _colorBuffer;
     private long _materialBuildId;
+    private PlanetBorderRenderer.PreparedGeometry _preparedBorders;
+
+    internal void SetPreparedBorders(PlanetBorderRenderer.PreparedGeometry geometry)
+    {
+        _preparedBorders = geometry;
+    }
 
 
     /// <summary>
@@ -78,6 +84,7 @@ public partial class HexasphereVisualController : Node3D
     virtual public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible, Shader colorsShader, Shader bordersShader)
     {
         var native = Hexasphere;
+        var borders = ReferenceEquals(_preparedBorders?.Source, native) ? _preparedBorders : null;
         ClearGenerated();
         Hexasphere = native;
         _planetArrayMesh   = mesh;
@@ -93,7 +100,7 @@ public partial class HexasphereVisualController : Node3D
         _bordersShader = bordersShader;
 
         if (_isBorderVisible)
-            _borderRenderer = new PlanetBorderRenderer(this);
+            _borderRenderer = new PlanetBorderRenderer(this, borders);
 
         CallDeferred(nameof(InitializeGeneratedMaterial), _materialBuildId);
     }
@@ -119,6 +126,7 @@ public partial class HexasphereVisualController : Node3D
     public virtual void ClearGenerated()
     {
         _materialBuildId++;
+        _preparedBorders = null;
         _borderRenderer?.Dispose();
         _borderRenderer = null;
         if (GodotObject.IsInstanceValid(_planetMeshInstance))
