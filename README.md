@@ -16,10 +16,12 @@ The math core is written in **C++ (GDExtension)** for maximum performance, with 
 - **Per-tile coloring** — custom colors via shader + `ImageTexture` (no per-tile materials)
 - **Click & hover** — `TileClicked` / `TileHovered` signals with raycast hit detection
 - **Custom tile data** — implement `ICellData` for biomes, heights, colors per tile
-- **UV projection** — 2D map view with pan/zoom and tile selection
+- **UV projection** — detailed or raster 2D map with pan/zoom, tile selection and automatic switching for large grids
 - **Cross-platform** — Windows (pre-built binary included), Linux and macOS can be built from source
 
 ## Installation
+
+Use **Godot .NET**: the plugin's nodes are implemented in C#, including when called from GDScript. This project currently targets Godot.NET.Sdk 4.7.2 and .NET 9; use a compatible .NET SDK to build the C# project.
 
 1. Copy `addons/hexasphere_generator/` into your project's `addons/` folder.
 2. Enable the plugin in **Project → Project Settings → Plugins**.
@@ -188,9 +190,13 @@ public partial class MyPlanet : Node3D
 
 | Signal | Arguments | Description |
 |---|---|---|
-| `TileClicked` | `(int tileIndex, Vector2 uvPosition)` | A tile was clicked in the 2D projection |
+| `TileClicked` | `(int tileIndex)` | A tile was clicked in the 2D projection |
+| `TileHovered` | `(int tileIndex)` | Hovered tile changed (-1 if none) |
 | `TileDeselected` | — | Selection was cleared in the projection |
 | `ProjectionClosed` | — | The UV projection view was closed |
+| `ProjectionReady` | — | A projection build request completed, including cache reuse |
+| `ProjectionBuildFailed` | `(string error)` | A projection build failed |
+| `ProjectionModeChanged` | `(int activeMode)` | A successful build changed the active mode |
 
 ## Input Actions
 
@@ -199,9 +205,98 @@ public partial class MyPlanet : Node3D
 | `ui_toggle_uv_map` | `1` | Open UV map projection (while hovering a tile) |
 | `ui_close_uv_map` | `Escape` | Close UV map projection |
 
+## UV Projection Modes
 
+Configure `HexasphereProjectorController` through standard Inspector properties or C#/GDScript. Settings take effect on the next `BuildMap2D`, `PrepareMap`, `PrepareUvProjector`, or `RebuildMap` call; changing a property does not start an expensive build automatically.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ProjectionMode` | `Auto` (0) | `Auto` (0), `DetailedMesh` (1), or `Raster` (2) |
+| `MaxDetailedTileCount` | 200,000 | Auto uses raster above this count; equality uses detailed geometry |
+| `MapSize` | 1920 × 1080 | Displayed map size in local 2D units |
+| `RasterQuality` | `Medium` (2) | `Custom` (0), `Low` (1): 1024 × 512, `Medium` (2): 2048 × 1024, `High` (3): 4096 × 2048 |
+| `RasterResolution` | 2048 × 1024 | Pixel dimensions when quality is `Custom`; independent of `MapSize` |
+
+Raster mode draws two triangles and stores a pixel-to-tile ID map for hover, selection, and picking. It avoids a per-tile UV rendering mesh and its hit-test triangle storage. Native topology generation and initial rasterization still depend on tile count. The 200,000-tile threshold is configurable, not a hardware-independent performance guarantee; raster mode does not simplify the 3D sphere.
+
+Raster detail and picking are limited by pixel resolution. Cells smaller than a pixel may not be represented; zooming does not add detail. Dimensions must be 1–8192 with at most 16,777,216 pixels total. ID/color buffers and textures each require memory proportional to the raster resolution.
+
+### From C#
+
+After the sphere's `PlanetGenerated` signal, configure its linked projector and prepare it without changing visibility or the active camera:
+
+```csharp
+projector.ProjectionMode = UvProjectionMode.Raster;
+projector.RasterQuality = UvRasterQuality.Custom;
+projector.RasterResolution = new Vector2I(2048, 1024);
+
+// sphere.UvProjectorPath must point to this projector.
+if (sphere.PrepareUvProjector())
+{
+    int tile = projector.GetTileAtUv(new Vector2(0.4f, 0.4f));
+    projector.SelectTile(tile);
+}
+
+// Apply changed settings to an already prepared map.
+projector.ProjectionMode = UvProjectionMode.Auto;
+projector.RebuildMap();
+```
+
+For standalone C# use with a generated `NativeHexasphere`, call `projector.PrepareMap(hexasphere, colors)`. The existing `BuildMap2D(hexasphere, colors, mapSize)` signature is preserved. The native wrapper is a C# class; GDScript should prepare through `HexasphereNode` instead.
+
+### From GDScript
+
+```gdscript
+# Run after the linked sphere emits PlanetGenerated.
+var projector = $Sphere/Projector
+projector.ProjectionMode = 2  # Raster; Auto=0, DetailedMesh=1
+projector.RasterQuality = 0   # Custom; Low=1, Medium=2, High=3
+projector.RasterResolution = Vector2i(2048, 1024)
+
+if $Sphere.PrepareUvProjector():
+    var tile = projector.GetTileAtUv(Vector2(0.4, 0.4))
+    projector.SelectTile(tile)
+
+projector.RasterResolution = Vector2i(4096, 2048)
+projector.RebuildMap()
+```
+
+### Projection API and caching
+
+| Method | Behavior |
+|---|---|
+| `sphere.PrepareUvProjector()` | Prepares the configured projector without opening it; returns success |
+| `projector.RebuildMap()` | Applies current settings to the previously prepared map |
+| `projector.UpdateColors(colors)` | Updates tile colors without rebuilding geometry or IDs; supply one color per tile |
+| `projector.GetTileAtUv(uv)` | Returns the tile at normalized UV coordinates, or -1 outside the map/when not ready |
+| `projector.SelectTile(id)` | Sets selection; returns false for an invalid ID or an unready map; -1 clears selection |
+| `projector.ClearSelection()` | Clears selection and hover |
+| `projector.SetSelection(selectedId, hoveredId)` | Updates both highlight indices directly |
+| `projector.GetSelectedTileIndex()` / `GetHoveredTileIndex()` | Reads the current highlight indices |
+| `projector.IsProjectionReady()` | Whether the last build succeeded |
+| `projector.GetActiveProjectionMode()` | Actual mode: DetailedMesh=1 or Raster=2 after a successful build; Auto=0 before first build |
+| `projector.GetEffectiveRasterResolution()` | Active raster dimensions, or zero in detailed mode |
+| `projector.GetBuildState()` | NotBuilt=0, Building=1, Ready=2, Failed=3 |
+| `projector.GetLastBuildError()` | Error from the last failed build, cleared at the next build request |
+| `projector.MarkDirty()` | Invalidates geometry for the next build; use after regenerating the same native instance |
+
+Programmatic selection changes highlights without emitting mouse-click signals. Existing `TileClicked`, `TileHovered`, and `TileDeselected` signals work in both render modes.
+
+Builds are synchronous. On failure, `BuildMap2D` emits `ProjectionBuildFailed`, records the error/state, and invalidates partial caches for a subsequent retry. `PrepareUvProjector()` returns false when the planet/projector is unavailable or its build fails.
+
+Reopening an unchanged map reuses its mesh and raster IDs. Recoloring and highlight changes do not rasterize again. Changing only `MapSize` reuses raster IDs; changing resolution, topology, or calling `MarkDirty()` invalidates them. Pan, zoom, and selection are preserved on settings changes and reopening; a different native sphere or tile count resets the camera and highlight indices.
+
+UV uses its own `Camera2D`; the sphere uses `Camera3D`. Custom 3D camera controllers should suspend input and movement while `HexasphereInputRouter.IsUvProjectionOpen` is true. Setting a camera's `Current` property to false does not stop its scripts. Both included 3D camera controllers respect UV mode.
+
+
+
+## Verification
+
+Use the [manual UV projection checklist](docs/testing/uv-projection-checklist.md) for interaction, mode changes, seams/poles and error recovery.
 
 ## Custom Cell Data
+
+The convenience setters `SetTileColor` and `SetAllTileColors` target `HexCellData`. For custom cell models, override `CreateCellData`, `SetVisualController`, and `GetColor`, as shown by Earth in `scenes/sol_example/`; the visual controller maps your data to colors.
 
 Implement `ICellData` for custom per-tile data and override `GetColor` in a custom visual controller:
 

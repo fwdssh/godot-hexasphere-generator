@@ -19,6 +19,12 @@ public partial class Camera3d : Camera3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (!Current || HexasphereInputRouter.IsUvProjectionOpen)
+        {
+            _isDragging = false;
+            return;
+        }
+
         if (@event is InputEventMouseButton mouseButton)
         {
             if (mouseButton.ButtonIndex == MouseButton.Right)
@@ -26,21 +32,25 @@ public partial class Camera3d : Camera3D
                 _isDragging = mouseButton.Pressed;
             }
 
-            if (mouseButton.ButtonIndex == MouseButton.WheelUp)
+            if (mouseButton.ButtonIndex == MouseButton.WheelUp && mouseButton.Pressed)
             {
                 Position = Position.Normalized() * Mathf.Max(MinZoom, Position.Length() - ZoomSpeed);
                 LookAt(Vector3.Zero, Vector3.Up);
             }
 
-            if (mouseButton.ButtonIndex == MouseButton.WheelDown)
+            if (mouseButton.ButtonIndex == MouseButton.WheelDown && mouseButton.Pressed)
             {
                 Position = Position.Normalized() * Mathf.Min(MaxZoom, Position.Length() + ZoomSpeed);
                 LookAt(Vector3.Zero, Vector3.Up);
             }
         }
 
-        if (@event is InputEventMouseMotion motion && _isDragging)
+        if (@event is InputEventMouseMotion motion)
         {
+            // UV mode can consume the release that ends a drag started in 3D.
+            _isDragging &= (motion.ButtonMask & MouseButtonMask.Right) != 0;
+            if (!_isDragging) return;
+
             Vector3 pos = Position;
 
             pos = pos.Rotated(Vector3.Up, -motion.Relative.X * MouseRotateSpeed);

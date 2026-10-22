@@ -57,8 +57,12 @@ public partial class UvCamera2D : Camera2D
             }
         }
 
-        if (@event is InputEventMouseMotion mouseMotion && _isDragging)
+        if (@event is InputEventMouseMotion mouseMotion)
         {
+            // The button may have been released while the projection was hidden.
+            _isDragging &= (mouseMotion.ButtonMask & MouseButtonMask.Right) != 0;
+            if (!_isDragging) return;
+
             Position -= mouseMotion.Relative / Zoom;
             Position = new Vector2(
                 Mathf.Clamp(Position.X, _panCenter.X - _panLimits.X, _panCenter.X + _panLimits.X),

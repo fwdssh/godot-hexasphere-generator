@@ -275,6 +275,17 @@ virtual protected void OnShaderReady()
 }
 
     /// <summary>
+    /// Prepares the configured UV projector without opening it. Available from C# and GDScript.
+    /// Returns false when the planet/projector is not ready or the projection build fails.
+    /// </summary>
+    public bool PrepareUvProjector()
+    {
+        if (UvProjector == null || !_planetReady || _hexasphere == null) return false;
+        UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
+        return UvProjector.IsProjectionReady();
+    }
+
+    /// <summary>
     /// Opens the UV map projection view. Disables the 3D camera and shows the 2D UV editor.
     /// </summary>
     public virtual void OpenUvProjector()
@@ -288,11 +299,12 @@ virtual protected void OnShaderReady()
         return;
     }
 
+    if (!PrepareUvProjector()) return;
+
     UvProjector.TileClicked += OnUvTileClicked;
     UvProjector.TileDeselected += OnUvTileDeselected;
     UvProjector.TileHovered += OnUvTileHovered;
 
-    UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
     UvProjector.SetSelection(_selectedTileIndex, _hoveredTileIndex);
     UvProjector.Visible = true;
     UvProjector.ProcessMode = ProcessModeEnum.Always;
