@@ -1,0 +1,435 @@
+using Godot;
+using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
+
+public partial class HexasphereNode
+{
+    [Signal] public delegate void GenerationStartedEventHandler();
+    [Signal] public delegate void GenerationCancelledEventHandler();
+    [Signal] public delegate void GenerationFailedEventHandler(string error);
+    [Signal] public delegate void GenerationStateChangedEventHandler(int state);
+    [Signal] public delegate void GenerationProgressChangedEventHandler(int stage, int completedStages, int totalStages);
+
+    [ExportGroup("Generation")]
+    /// <summary>Generate automatically in _Ready. Disable to start explicitly from code.</summary>
+    [Export] public bool AutoGenerate { get => _shouldAutoGenerate; set => _shouldAutoGenerate = value; }
+
+    public HexasphereGenerationState GenerationState { get; private set; }
+    public HexasphereGenerationStage GenerationStage { get; private set; }
+    public string LastGenerationError { get; private set; } = "";
+    public int CompletedGenerationStages { get; private set; }
+    public const int TotalGenerationStages = 4;
+    /// <summary>Synchronous native ArrayMesh build time; excludes topology, materials and borders.</summary>
+    public double LastMeshBuildMilliseconds { get; private set; }
+
+    /// <summary>Captured base settings for the current extension hook.</summary>
+    protected HexasphereGenerationSettings CurrentGenerationSettings =>
+        _workerGeneration.Value?.Settings ?? _activeGeneration?.Settings;
+    /// <summary>Check this in custom background loops to support cancellation between native calls.</summary>
+    protected CancellationToken GenerationCancellationToken => _workerGeneration.Value?.Token ?? CancellationToken.None;
+
+    private readonly object _generationLock = new();
+    private readonly ConcurrentQueue<GenerationMessage> _generationMessages = new();
+    private readonly AsyncLocal<GenerationRequest> _workerGeneration = new();
+    private GenerationRequest _activeGeneration;
+    private Task _generationTask = Task.CompletedTask;
+    private long _generationSerial;
+    private bool _generationInitialized;
+    private bool _generationShuttingDown;
+    private SceneTree _generationTree;
+    private float _generatedRadius;
+
+    private sealed class GenerationRequest
+    {
+        public readonly long Id;
+        public readonly HexasphereGenerationSettings Settings;
+        public readonly CancellationToken Token;
+        private readonly CancellationTokenSource _cancellation = new();
+        private bool _disposed;
+        public bool WorkerStarted;
+        public bool Published;
+        public bool Finalizing;
+        public bool ShaderReadyPending;
+        public NativeHexasphere Native;
+        public Vector3[] Centers;
+        public ICellData[] Cells;
+
+        public GenerationRequest(long id, HexasphereGenerationSettings settings)
+        {
+            Id = id; Settings = settings; Token = _cancellation.Token;
+        }
+        public void Cancel()
+        {
+            lock (_cancellation) { if (!_disposed) _cancellation.Cancel(); }
+        }
+        public void DisposeCancellation()
+        {
+            lock (_cancellation)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _cancellation.Dispose();
+            }
+        }
+    }
+
+    private sealed record GenerationMessage(GenerationRequest Request,
+        HexasphereGenerationStage Stage, bool Completed = false, string Error = null);
+
+    public int GetGenerationState() => (int)GenerationState;
+    public int GetGenerationStage() => (int)GenerationStage;
+    public bool IsGenerating() => GenerationState == HexasphereGenerationState.Generating;
+    public string GetLastGenerationError() => LastGenerationError;
+    public int GetCompletedGenerationStages() => CompletedGenerationStages;
+    public int GetTotalGenerationStages() => TotalGenerationStages;
+    public double GetLastMeshBuildMilliseconds() => LastMeshBuildMilliseconds;
+
+    /// <summary>Starts from current settings, replacing an active request. Call from the main thread.</summary>
+    public bool GeneratePlanet()
+    {
+        if (!_generationInitialized || _generationShuttingDown || !IsInsideTree() || IsQueuedForDeletion()) return false;
+        long previous = _generationSerial;
+        StartGeneration();
+        return !_generationShuttingDown && IsInsideTree() && !IsQueuedForDeletion()
+            && _generationSerial != previous && GenerationState != HexasphereGenerationState.Failed;
+    }
+
+    /// <summary>Restarts using current settings. Old work is cancelled without blocking the main thread.</summary>
+    public bool RestartGeneration() => GeneratePlanet();
+
+    /// <summary>Invalidates the active request. An in-progress native call finishes without being applied.</summary>
+    public bool CancelGeneration()
+    {
+        if (!IsGenerating()) return false;
+        long beforeCleanup = _generationSerial;
+        CleanupResources();
+        if (!CanContinueAfterCleanup(beforeCleanup)) return true;
+        long serial = _generationSerial;
+        SetGenerationState(HexasphereGenerationState.Cancelled);
+        if (_generationSerial == serial)
+            EmitSignal(SignalName.GenerationCancelled);
+        return true;
+    }
+
+    public override void _EnterTree()
+    {
+        _generationShuttingDown = false;
+        if (_generationInitialized)
+        {
+            InitializeGenerationLifecycle();
+            if (!GodotObject.IsInstanceValid(VisualController)) SetVisualController();
+            if (GodotObject.IsInstanceValid(UvProjector))
+            {
+                UvProjector.ProjectionClosed -= OnProjectionClosed;
+                UvProjector.ProjectionClosed += OnProjectionClosed;
+            }
+        }
+    }
+
+    private void InitializeGenerationLifecycle()
+    {
+        _generationInitialized = true;
+        HexasphereInputRouter.Register(this);
+        var tree = GetTree();
+        if (_generationTree == tree) return;
+        if (GodotObject.IsInstanceValid(_generationTree)) _generationTree.ProcessFrame -= DrainGenerationMessages;
+        _generationTree = tree;
+        // Independent of derived _Process overrides and of the node's process/paused mode.
+        _generationTree.ProcessFrame += DrainGenerationMessages;
+    }
+
+    private void ShutdownGenerationLifecycle()
+    {
+        lock (_generationLock) _generationShuttingDown = true;
+        if (GodotObject.IsInstanceValid(_generationTree)) _generationTree.ProcessFrame -= DrainGenerationMessages;
+        _generationTree = null;
+        if (IsGenerating()) GenerationState = HexasphereGenerationState.Cancelled;
+        else if (GenerationState == HexasphereGenerationState.Ready)
+        {
+            GenerationState = HexasphereGenerationState.NotStarted;
+            GenerationStage = HexasphereGenerationStage.NotStarted;
+            CompletedGenerationStages = 0;
+        }
+        // Invalidate even if a subclass customizes CleanupResources.
+        InvalidateGenerationRequest();
+    }
+
+    private void InvalidateGenerationRequest()
+    {
+        lock (_generationLock)
+        {
+            _generationSerial++;
+            var request = _activeGeneration;
+            _activeGeneration = null;
+            if (request != null)
+            {
+                request.Cancel();
+                // Only published native data belongs to the main thread.
+                // Running workers dispose their own native object after returning.
+                if (request.Published)
+                {
+                    request.Native?.Dispose(); request.Native = null;
+                    request.Centers = null; request.Cells = null;
+                }
+                if (!request.WorkerStarted) request.DisposeCancellation();
+            }
+            while (_generationMessages.TryDequeue(out _)) { }
+        }
+    }
+
+    private void BeginGenerationRequest()
+    {
+        if (!_generationInitialized || _generationShuttingDown || !IsInsideTree() || IsQueuedForDeletion()) return;
+        if (IsGenerating())
+        {
+            long previous = _generationSerial;
+            CancelGeneration();
+            // A cancellation signal handler may have started another request.
+            if (_generationSerial != previous + 1 || _generationShuttingDown || !IsInsideTree()) return;
+        }
+        long beforeCleanup = _generationSerial;
+        CleanupResources();
+        if (!CanContinueAfterCleanup(beforeCleanup)) return;
+        LastGenerationError = "";
+        LastMeshBuildMilliseconds = 0;
+        GenerationStage = HexasphereGenerationStage.NotStarted;
+        CompletedGenerationStages = 0;
+        GenerationRequest request;
+        try
+        {
+            var settings = new HexasphereGenerationSettings(this);
+            if (!float.IsFinite(settings.Radius) || settings.Radius <= 0)
+                throw new ArgumentOutOfRangeException(nameof(PlanetRadius), "PlanetRadius must be finite and positive.");
+            if (settings.Subdivision < 1 || 10.0 * settings.Subdivision * settings.Subdivision + 2 > int.MaxValue / 18)
+                throw new ArgumentOutOfRangeException(nameof(SubDivision), "SubDivision must be positive and fit the mesh's 32-bit vertex counts.");
+            if (!float.IsFinite(settings.HexSize) || settings.HexSize < 0.1f || settings.HexSize > 1)
+                throw new ArgumentOutOfRangeException(nameof(HexSize), "HexSize must be finite and within 0.1..1.");
+            if (settings.ColorsShader == null || (settings.Borders && settings.BordersShader == null))
+                throw new InvalidOperationException("Supply the color shader and, when borders are enabled, the border shader.");
+            lock (_generationLock)
+                _activeGeneration = request = new GenerationRequest(++_generationSerial, settings);
+        }
+        catch (Exception error) { FailGeneration(null, error); return; }
+
+        SetGenerationState(HexasphereGenerationState.Generating);
+        if (!IsCurrentGeneration(request)) return;
+        EmitSignal(SignalName.GenerationStarted);
+        if (!ReportGenerationStage(request, HexasphereGenerationStage.GeneratingTopology)) return;
+        request.WorkerStarted = true;
+        var previousTask = _generationTask;
+        // Serialize each node's custom background hooks. Cancelled queued requests skip their work.
+        _generationTask = Task.Run(async () =>
+        {
+            try
+            {
+                await previousTask.ConfigureAwait(false);
+                request.Token.ThrowIfCancellationRequested();
+                _workerGeneration.Value = request;
+                request.Native = new NativeHexasphere();
+                GenerateInBackground(request.Native);
+                request.Token.ThrowIfCancellationRequested();
+                if (request.Centers == null || request.Cells == null)
+                    throw new InvalidOperationException("GenerateInBackground overrides must call base or PublishGenerationResult.");
+                lock (_generationLock)
+                {
+                    if (_generationShuttingDown || _activeGeneration != request) return;
+                    request.Published = true;
+                    _generationMessages.Enqueue(new GenerationMessage(request, HexasphereGenerationStage.BuildingMesh, Completed: true));
+                }
+            }
+            catch (OperationCanceledException) when (request.Token.IsCancellationRequested) { }
+            catch (Exception error)
+            {
+                lock (_generationLock)
+                    if (!_generationShuttingDown && _activeGeneration == request)
+                        _generationMessages.Enqueue(new GenerationMessage(request, HexasphereGenerationStage.NotStarted, Error: error.Message));
+            }
+            finally
+            {
+                _workerGeneration.Value = null;
+                if (!request.Published)
+                {
+                    request.Native?.Dispose(); request.Native = null;
+                    request.Centers = null; request.Cells = null;
+                }
+                request.DisposeCancellation();
+            }
+        });
+    }
+
+    private bool IsCurrentGeneration(GenerationRequest request) => request != null
+        && !_generationShuttingDown && _activeGeneration == request
+        && !request.Token.IsCancellationRequested && IsInsideTree() && !IsQueuedForDeletion();
+
+    private bool CanContinueAfterCleanup(long previousSerial) => _generationSerial == previousSerial + 1
+        && !_generationShuttingDown && IsInsideTree() && !IsQueuedForDeletion();
+
+    private void GenerateRequestInBackground(NativeHexasphere native)
+    {
+        var request = _workerGeneration.Value ?? throw new InvalidOperationException("Start generation through GeneratePlanet().");
+        var settings = request.Settings;
+        request.Token.ThrowIfCancellationRequested();
+        native.Generate(settings.Radius, settings.Subdivision, settings.HexSize);
+        request.Token.ThrowIfCancellationRequested();
+        int count = native.GetTileCount();
+        request.Centers = native.GetAllTileCenters();
+        lock (_generationLock)
+            if (!_generationShuttingDown && _activeGeneration == request)
+                _generationMessages.Enqueue(new GenerationMessage(request, HexasphereGenerationStage.CreatingCellData));
+        var cells = CreateCellData(count, request.Centers);
+        request.Token.ThrowIfCancellationRequested();
+        if (cells == null || cells.Length != count)
+            throw new InvalidOperationException($"CreateCellData must return exactly {count} cells.");
+        PublishGenerationResult(native, request.Centers, cells);
+    }
+
+    /// <summary>
+    /// Publishes a fully custom GenerateInBackground result. Call on that request's worker,
+    /// using its supplied native instance; the lifecycle marshals it to the main thread.
+    /// </summary>
+    protected void PublishGenerationResult(NativeHexasphere native, Vector3[] centers, ICellData[] cells)
+    {
+        var request = _workerGeneration.Value ?? throw new InvalidOperationException("No background request is active on this thread.");
+        request.Token.ThrowIfCancellationRequested();
+        if (native != request.Native || centers == null || cells == null || centers.Length != cells.Length
+            || cells.Length == 0 || cells.Length != native.GetTileCount())
+            throw new ArgumentException("Publish the request's native instance and exactly one center/data item per generated tile.");
+        request.Centers = centers;
+        request.Cells = cells;
+    }
+
+    private void DrainGenerationMessages()
+    {
+        while (_generationMessages.TryDequeue(out var message))
+        {
+            var request = message.Request;
+            if (!IsCurrentGeneration(request)) continue;
+            try
+            {
+                if (message.Error != null) { FailGeneration(request, new InvalidOperationException(message.Error)); continue; }
+                if (!ReportGenerationStage(request, message.Stage) || !message.Completed) continue;
+                // Transfer published data to the existing finalization extension point.
+                lock (_generationLock)
+                {
+                    _pendingHexasphere = request.Native;
+                    request.Native = null;
+                    _pendingCenters = request.Centers;
+                    _pendingCellDatas = request.Cells;
+                    request.Centers = null;
+                    request.Cells = null;
+                }
+                request.Finalizing = true;
+                try { FinalizePlanet(); }
+                finally { request.Finalizing = false; }
+                if (request.ShaderReadyPending && IsCurrentGeneration(request)) OnGenerationShaderReady();
+            }
+            catch (Exception error) { FailGeneration(request, error); }
+        }
+    }
+
+    private void FinalizeGenerationRequest()
+    {
+        var request = _activeGeneration;
+        if (!IsCurrentGeneration(request) || _pendingHexasphere == null) return;
+        _hexasphere = _pendingHexasphere;
+        _generatedRadius = request.Settings.Radius;
+        _cellDatas = _pendingCellDatas;
+        var centers = _pendingCenters;
+        _pendingHexasphere = null;
+        _pendingCenters = null;
+        _pendingCellDatas = null;
+        if (!GodotObject.IsInstanceValid(VisualController))
+            throw new InvalidOperationException("The visual controller was removed during generation.");
+        var clock = Stopwatch.StartNew();
+        using var result = _hexasphere.BuildMesh();
+        LastMeshBuildMilliseconds = clock.Elapsed.TotalMilliseconds;
+        var mesh = (ArrayMesh)result["mesh"];
+        try
+        {
+            BuildSpatialIndex(centers);
+            if (!ReportGenerationStage(request, HexasphereGenerationStage.PreparingVisuals)) { mesh.Dispose(); return; }
+            var settings = request.Settings;
+            VisualController.SetNativeHexasphere(_hexasphere);
+            VisualController.ShaderReady += OnGenerationShaderReady;
+            VisualController.ShaderInitializationFailed += OnGenerationShaderFailed;
+            VisualController.ApplyGenerated(mesh, settings.Borders, settings.ColorsShader, settings.BordersShader);
+            if (IsCurrentGeneration(request)) VisualController.SetBorderColor(settings.BorderColor);
+        }
+        catch { mesh.Dispose(); throw; }
+    }
+
+    private void OnGenerationShaderReady()
+    {
+        var request = _activeGeneration;
+        if (!IsCurrentGeneration(request) || !IsGenerating()) return;
+        // Custom controllers may emit synchronously from ApplyGenerated. Finish
+        // only after the complete finalization hook has returned successfully.
+        if (request.Finalizing) { request.ShaderReadyPending = true; return; }
+        VisualController.ShaderReady -= OnGenerationShaderReady;
+        VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
+        try
+        {
+            OnShaderReady();
+            if (IsCurrentGeneration(request)) CompleteGenerationRequest();
+        }
+        catch (Exception error) { FailGeneration(request, error); }
+    }
+
+    private void OnGenerationShaderFailed(string error) => FailGeneration(_activeGeneration, new InvalidOperationException(error));
+
+    private void PrepareGenerationColors()
+    {
+        var request = _activeGeneration;
+        if (!IsCurrentGeneration(request)) return;
+        VisualController.DrawColors(_cellDatas);
+        VisualController.SetEmissive(request.Settings.Emissive);
+        _tileColors = new Color[_cellDatas.Length];
+        for (int i = 0; i < _tileColors.Length; i++) _tileColors[i] = VisualController.GetColor(_cellDatas[i]);
+    }
+
+    private void CompleteGenerationRequest()
+    {
+        var request = _activeGeneration;
+        if (!IsCurrentGeneration(request)) return;
+        if (_tileColors == null)
+            throw new InvalidOperationException("OnShaderReady overrides must call base or prepare the tile color cache.");
+        if (!ReportGenerationStage(request, HexasphereGenerationStage.Ready)) return;
+        _planetReady = true;
+        SetGenerationState(HexasphereGenerationState.Ready);
+        if (!IsCurrentGeneration(request)) return;
+        EmitSignal(SignalName.PlanetGenerated, _cellDatas.Length);
+        if (_activeGeneration == request) _activeGeneration = null;
+    }
+
+    private void FailGeneration(GenerationRequest request, Exception error)
+    {
+        if (request != null && (!IsCurrentGeneration(request) || !IsGenerating())) return;
+        if (_generationShuttingDown || !IsInsideTree()) return;
+        long beforeCleanup = _generationSerial;
+        CleanupResources();
+        if (!CanContinueAfterCleanup(beforeCleanup)) return;
+        LastGenerationError = error.Message;
+        long serial = _generationSerial;
+        SetGenerationState(HexasphereGenerationState.Failed);
+        if (_generationSerial == serial) EmitSignal(SignalName.GenerationFailed, LastGenerationError);
+    }
+
+    private void SetGenerationState(HexasphereGenerationState state)
+    {
+        if (GenerationState == state) return;
+        GenerationState = state;
+        EmitSignal(SignalName.GenerationStateChanged, (int)state);
+    }
+
+    private bool ReportGenerationStage(GenerationRequest request, HexasphereGenerationStage stage)
+    {
+        if (!IsCurrentGeneration(request)) return false;
+        GenerationStage = stage;
+        CompletedGenerationStages = stage == HexasphereGenerationStage.Ready ? TotalGenerationStages : (int)stage - 1;
+        EmitSignal(SignalName.GenerationProgressChanged, (int)stage, CompletedGenerationStages, TotalGenerationStages);
+        return IsCurrentGeneration(request);
+    }
+}

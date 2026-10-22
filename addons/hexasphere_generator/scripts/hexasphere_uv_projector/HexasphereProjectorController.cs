@@ -304,12 +304,18 @@ public partial class HexasphereProjectorController : Node2D
 
     private void ClearGeometryCaches()
     {
+        ClearPrecomputedGeometry();
+        ClearRasterCache();
+    }
+
+    private void ClearPrecomputedGeometry()
+    {
         _hasCachedGeometry = false;
         _cachedVertices = null;
         _cachedTriToTile = null;
         _cachedHitTris = null;
         _cachedGeomHexasphere = null;
-        ClearRasterCache();
+        _cachedGeomMapSize = Vector2.Zero;
     }
 
     private void BuildMesh(Color[] colors, Vector2 mapSize)
@@ -973,6 +979,25 @@ public partial class HexasphereProjectorController : Node2D
         _cachedHitTris = null;
     }
 
+    // A sphere owns its native data; discard only caches belonging to that source.
+    internal void InvalidateSource(NativeHexasphere source)
+    {
+        if (source == null) return;
+        if (_hexasphere != source)
+        {
+            if (_cachedGeomHexasphere == source) ClearPrecomputedGeometry();
+            return;
+        }
+        ReleaseProjectionResources();
+        _hexasphere = null;
+        _cachedHexasphere = null;
+        _cachedTileCount = 0;
+        _selectedTile = -1;
+        _hoveredTile = -1;
+        EffectiveRasterResolution = Vector2I.Zero;
+        LastBuildError = "";
+    }
+
     private void ReleaseColorMaterial()
     {
         if (GodotObject.IsInstanceValid(MeshInstance2D)) MeshInstance2D.Material = null;
@@ -984,7 +1009,9 @@ public partial class HexasphereProjectorController : Node2D
         _tileColorImage = null;
     }
 
-    public override void _ExitTree()
+    public override void _ExitTree() => ReleaseProjectionResources();
+
+    private void ReleaseProjectionResources()
     {
         ReleaseColorMaterial();
         if (GodotObject.IsInstanceValid(MeshInstance2D))
@@ -994,8 +1021,8 @@ public partial class HexasphereProjectorController : Node2D
             mesh?.Dispose();
         }
         ClearGeometryCaches();
-        _hitTris.Clear();
-        _spatialGrid.Clear();
+        _hitTris = new();
+        _spatialGrid = new();
         _colorBuffer = null;
         _lastColors = null;
         _hasBuiltMap = false;

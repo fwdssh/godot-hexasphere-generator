@@ -2,9 +2,10 @@
 
 ## Generation lifecycle
 
-- [ ] Make generation controllable and expose its state: not started, generating, ready, failed, and cancelled. Provide generation/restart/cancellation entry points and lifecycle signals that can be used from C# and GDScript.
-- [ ] Handle node removal, repeated generation, stale worker results, errors, and native resource ownership safely. Capture generation parameters per request and apply only the current request's result. Review the existing cancellation/request-ID implementation in `D:/godotgames/planet-generator/godot-planet-generator/addons/hexasphere_generator/scripts/hexasphere_node/HexasphereNode.cs` for reusable behavior while preserving the plugin's custom generation extension points.
-- [ ] Report progress by actual generation stages and measure main-thread mesh finalization at high subdivisions before deciding which work to move or split.
+- [x] Make generation controllable and expose its state: not started, generating, ready, failed, and cancelled. Provide generation/restart/cancellation entry points and lifecycle signals that can be used from C# and GDScript.
+- [x] Handle node removal, repeated generation, stale worker results, errors, and native resource ownership safely. Capture generation parameters per request and apply only the current request's result. Reuse the cancellation/request-ID approach from `planet-generator` while preserving custom cell-data and visual extension points.
+- [x] Report progress by actual generation stages and measure main-thread mesh finalization at high subdivisions before deciding which work to move or split.
+- [ ] Reduce main-thread finalization pauses at high subdivisions. Native `ArrayMesh` construction, spatial indexing and material/border setup still run on the main thread; use the stage/mesh timing measurements to decide which preparation to move or apply incrementally.
 
 ## Installation and release documentation
 

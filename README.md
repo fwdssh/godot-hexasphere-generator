@@ -175,6 +175,48 @@ public partial class MyPlanet : Node3D
 }
 ```
 
+## Controlled Generation
+
+`AutoGenerate` defaults to `true`, preserving automatic generation in `_Ready`. Disable it in the Inspector or before adding the node to start explicitly. Lifecycle methods run on the main thread after `_Ready`.
+
+| Method | Behavior |
+|---|---|
+| `GeneratePlanet()` / `RestartGeneration()` | Capture current settings and start a new request; cancel an active request and clear the previous planet, selection and its UV cache. Return false when the node cannot start or settings are invalid. |
+| `CancelGeneration()` | Cancel an active request without blocking; return false if none is generating. |
+| `GetGenerationState()` | `NotStarted` (0), `Generating` (1), `Ready` (2), `Failed` (3), `Cancelled` (4). C# also exposes the typed `GenerationState` property. |
+| `GetGenerationStage()` | `NotStarted` (0), `GeneratingTopology` (1), `CreatingCellData` (2), `BuildingMesh` (3), `PreparingVisuals` (4), `Ready` (5). |
+| `GetCompletedGenerationStages()` / `GetTotalGenerationStages()` | Completed stage count out of four. This measures stages, not a prediction of elapsed time. |
+| `IsGenerating()` / `GetLastGenerationError()` | Query activity or the last failure message. Starting a new request clears the error. |
+| `GetLastMeshBuildMilliseconds()` | Synchronous native `ArrayMesh` construction time, excluding topology generation, spatial indexing, materials and borders. |
+
+```csharp
+var sphere = new HexasphereNode { AutoGenerate = false, SubDivision = 100 };
+sphere.PlanetGenerated += count => GD.Print($"Ready: {count} tiles");
+sphere.GenerationFailed += error => GD.PrintErr(error);
+AddChild(sphere);
+sphere.GeneratePlanet();
+// To change topology later:
+// sphere.SubDivision = 142;
+// sphere.RestartGeneration();
+```
+
+```gdscript
+# For an existing child with AutoGenerate disabled in the Inspector:
+func _ready() -> void:
+    var sphere = $Hexasphere
+    sphere.PlanetGenerated.connect(func(count): print("Ready: ", count))
+    sphere.GenerationFailed.connect(func(error): push_error(error))
+    sphere.GenerationProgressChanged.connect(
+        func(stage, completed, total): print(stage, ": ", completed, "/", total))
+    sphere.GeneratePlanet()
+```
+
+Geometry, seed and base rendering settings are captured per request. Editing them during generation affects the next request; interaction uses the radius of the generated geometry. Background hooks are serialized per node, including across restarts. Cancellation invalidates results immediately, but cannot interrupt a native C++ call already running. The next request waits for that node's previous worker to finish. Removing/freeing a node cancels pending work and prevents late completion/error callbacks. Removing a ready node releases its planet and resets its state to NotStarted. A removed node can be re-added and started explicitly; `_Ready` autogeneration does not repeat unless requested through Godot's usual ready lifecycle.
+
+`PlanetGenerated` fires only after geometry, spatial indexing, materials, colors and extension hooks finish successfully. State/progress/error signals are delivered on the main thread. `IsReady` is false while generating, failed or cancelled. A failed/cancelled request leaves no active planet; connect the failure/cancellation signals when waiting for asynchronous completion.
+
+`CreateCellData` and `GenerateInBackground` still run in the background: avoid scene-tree access there. Custom loops can check the protected `GenerationCancellationToken`; `CurrentGenerationSettings` exposes the captured base settings. Snapshot any additional custom settings on the main thread before starting. `GenerateInBackground` overrides can call `base` or produce their own data and call `PublishGenerationResult(native, centers, cells)` with the supplied native instance. Do not write the legacy pending fields or schedule `FinalizePlanet` from a worker. `FinalizePlanet`, `OnShaderReady`, `InitShaderMaterial` and `CleanupResources` overrides should call `base`; completion is published after the full hooks return. Fully custom visuals may emit `ShaderReady` synchronously after initializing their resources; the node waits until finalization returns before publishing completion. Custom rendering resources should be released by overriding `ClearGenerated` and calling `base`.
+
 ## Signals
 
 `HexasphereNode` emits the following signals:
@@ -185,6 +227,11 @@ public partial class MyPlanet : Node3D
 | `TileHovered` | `(int tileIndex)` | Mouse hovers over a tile (-1 if none) |
 | `TileDeselected` | — | Selection was cleared (clicked empty space) |
 | `PlanetGenerated` | `(int tileCount)` | Planet generation completed |
+| `GenerationStarted` | — | A new request started |
+| `GenerationCancelled` | — | The active request was cancelled, including when replaced by a restart |
+| `GenerationFailed` | `(string error)` | Validation, background generation or main-thread finalization failed |
+| `GenerationStateChanged` | `(int state)` | The generation state changed |
+| `GenerationProgressChanged` | `(int stage, int completedStages, int totalStages)` | A generation stage began or all stages completed |
 
 `HexasphereProjectorController` emits the following signals:
 
@@ -293,6 +340,7 @@ UV uses its own `Camera2D`; the sphere uses `Camera3D`. Custom 3D camera control
 ## Verification
 
 Use the [manual UV projection checklist](docs/testing/uv-projection-checklist.md) for interaction, mode changes, seams/poles and error recovery.
+Use the [generation lifecycle checklist](docs/testing/generation-checklist.md) for start/restart/cancel, removal, failures, custom hooks and UV regeneration.
 
 ## Custom Cell Data
 
@@ -340,13 +388,14 @@ public partial class MyPlanet : HexasphereNode
 
 ## Overridable Methods
 
-Key virtual methods in `HexasphereNode`:
+Key extension points and protected helpers in `HexasphereNode`:
 
 | Method | Purpose |
 |---|---|
 | `CreateCellData(int count, Vector3[] centers)` | Create array of `ICellData[]` with custom per-tile data |
 | `SetVisualController()` | Assign a custom visual controller subclass |
 | `GenerateInBackground(NativeHexasphere hexasphere)` | Override to customize background generation logic |
+| `PublishGenerationResult(NativeHexasphere hexasphere, Vector3[] centers, ICellData[] cells)` | Publish fully custom background results through the protected lifecycle helper (not virtual) |
 | `OnShaderReady()` | Called when the visual shader is initialized |
 | `FinalizePlanet()` | Called after planet generation completes |
 | `FindTileIndexByDirection(Vector3 direction)` | Custom hit-test: returns tile index by ray direction |
@@ -366,6 +415,7 @@ Key virtual methods in `HexasphereVisualController`:
 | `InitShaderMaterial()` | Initialize the shader material |
 | `Draw(ICellData[] cellDatas, ...)` | Full redraw of all tiles |
 | `DisposeHexasphere()` | Clean up the native hexasphere instance |
+| `ClearGenerated()` | Release owned visual resources when replacing or removing the planet; native data remains node-owned |
 
 Key virtual methods in `PlanetBorderRenderer`:
 

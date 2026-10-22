@@ -124,6 +124,9 @@ public static class HexasphereInputRouter
     /// <summary>Returns true if a UV projection is currently open.</summary>
     public static bool IsUvProjectionOpen => _uvProjectionOwner != null;
 
+    /// <summary>Returns whether this sphere currently owns the UV view.</summary>
+    public static bool IsUvProjectionOwner(HexasphereNode sphere) => _uvProjectionOwner == sphere;
+
     /// <summary>
     /// Notify that selection changed to a specific sphere.
     /// Clears selection from all other registered spheres.

@@ -1,5 +1,4 @@
 using Godot;
-using System.Threading.Tasks;
 using System.Collections.Generic;
 using Godot.Hexasphere;
 /// <summary>
@@ -118,14 +117,16 @@ public partial class HexasphereNode : Node3D
 
     virtual protected ICellData[] CreateCellData(int count, Vector3[] centers)
     {
-        var rng = new RandomNumberGenerator();
-        if (GenerationSeed >= 0)
-            rng.Seed = (ulong)GenerationSeed;
+        using var rng = new RandomNumberGenerator();
+        int seed = CurrentGenerationSettings?.Seed ?? GenerationSeed;
+        if (seed >= 0)
+            rng.Seed = (ulong)seed;
         else
             rng.Randomize();
         var data = new HexCellData[count];
         for (int i = 0; i < data.Length; i++)
         {
+        if ((i & 1023) == 0) GenerationCancellationToken.ThrowIfCancellationRequested();
         data[i] = new HexCellData
         {
             color = Color.FromHsv(rng.Randf(), 0.6f, 0.85f)
@@ -138,7 +139,7 @@ public partial class HexasphereNode : Node3D
 
     public override void _Ready()
     {
-        HexasphereInputRouter.Register(this);
+        InitializeGenerationLifecycle();
         SetVisualController();
 
         if (!string.IsNullOrEmpty(UvProjectorPath))
@@ -158,7 +159,27 @@ public partial class HexasphereNode : Node3D
 
     virtual protected void CleanupResources()
     {
+        InvalidateGenerationRequest();
+        ResetGeneratedPlanet();
+    }
+
+    private void ResetGeneratedPlanet()
+    {
+        if (HexasphereInputRouter.IsUvProjectionOwner(this))
+            CloseUvProjectorFromRouter();
+        if (GodotObject.IsInstanceValid(UvProjector))
+            UvProjector.InvalidateSource(_hexasphere);
+        if (GodotObject.IsInstanceValid(VisualController))
+        {
+            VisualController.ShaderReady -= OnGenerationShaderReady;
+            VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
+            VisualController.ClearGenerated();
+        }
+        _planetReady = false;
+        _selectedTileIndex = -1;
+        _hoveredTileIndex = -1;
         _hexasphere?.Dispose();
+        _pendingHexasphere?.Dispose();
         _hexasphere = null;
         _cellDatas = null;
         _tileColors = null;
@@ -171,19 +192,7 @@ public partial class HexasphereNode : Node3D
 
     virtual protected void StartGeneration()
     {
-        var hexasphere = new NativeHexasphere();
-        Task.Run(() =>
-        {
-            try
-            {
-                GenerateInBackground(hexasphere);
-            }
-            catch (System.Exception e)
-            {
-                GD.PrintErr($"[HexasphereNode] Generation error: {e}");
-                hexasphere.Dispose();
-            }
-        });
+        BeginGenerationRequest();
     }
 
     virtual protected void SetVisualController()
@@ -203,75 +212,16 @@ public partial class HexasphereNode : Node3D
 
     virtual protected void GenerateInBackground(NativeHexasphere hexasphere)
     {
-        // Pure C++ generation + data extraction — safe on background thread
-        hexasphere.Generate(PlanetRadius, SubDivision, HexSize);
-
-        int tileCount = hexasphere.GetTileCount();
-        var centers = hexasphere.GetAllTileCenters();
-        var cellDatas = CreateCellData(tileCount, centers);
-
-        _pendingHexasphere = hexasphere;
-        _pendingCenters = centers;
-        _pendingCellDatas = cellDatas;
-
-        CallDeferred(MethodName.FinalizePlanet);
+        GenerateRequestInBackground(hexasphere);
     }
 
 virtual protected void FinalizePlanet()
 {
-    if (!IsInsideTree())
-    {
-        _pendingHexasphere?.Dispose();
-        _pendingHexasphere = null;
-        return;
-    }
-
-    if (_pendingHexasphere == null)
-    {
-        _pendingCenters    = null;
-        _pendingCellDatas  = null;
-        return;
-    }
-
-    _cellDatas = _pendingCellDatas;
-    _hexasphere = _pendingHexasphere;
-
-    var result = _pendingHexasphere.BuildMesh();
-    var mesh = (ArrayMesh)result["mesh"];
-
-    if (!GodotObject.IsInstanceValid(VisualController))
-    {
-        _pendingHexasphere = null;
-        _pendingCenters    = null;
-        _pendingCellDatas  = null;
-        return;
-    }
-
-    VisualController.SetNativeHexasphere(_pendingHexasphere);
-    VisualController.ShaderReady += OnShaderReady;
-    VisualController.ApplyGenerated(mesh, IsBordering, ColorsShader, BordersShader);
-    VisualController.SetBorderColor(BorderColor);
-    BuildSpatialIndex(_pendingCenters);
-
-    _pendingHexasphere = null;
-    _pendingCenters    = null;
-    _pendingCellDatas  = null;
+    FinalizeGenerationRequest();
 }
 virtual protected void OnShaderReady()
 {
-    VisualController.ShaderReady -= OnShaderReady;
-    VisualController.DrawColors(_cellDatas);
-    VisualController.SetEmissive(IsEmissive);
-
-    if (_hexasphere != null && _cellDatas != null)
-    {
-        _tileColors = new Color[_cellDatas.Length];
-        for (int i = 0; i < _cellDatas.Length; i++)
-            _tileColors[i] = VisualController.GetColor(_cellDatas[i]);
-    }
-
-    _planetReady = true;
-    EmitSignal(SignalName.PlanetGenerated, _cellDatas?.Length ?? 0);
+    PrepareGenerationColors();
 }
 
     /// <summary>
@@ -365,6 +315,7 @@ virtual protected void OnShaderReady()
     {
         hitPosition = Vector3.Zero;
         tileIndex = -1;
+        if (!_planetReady) return false;
 
         var camera = GetViewport().GetCamera3D();
         if (camera == null) return false;
@@ -374,7 +325,7 @@ virtual protected void OnShaderReady()
         Vector3 origin = ToLocal(rayOriginWorld);
         Vector3 dir    = (ToLocal(rayOriginWorld + camera.ProjectRayNormal(mousePos)) - origin).Normalized();
 
-        if (!RaySphereIntersect(origin, dir, PlanetRadius, out hitPosition))
+        if (!RaySphereIntersect(origin, dir, _generatedRadius, out hitPosition))
             return false;
 
         tileIndex = FindTileIndexByDirection(hitPosition.Normalized());
@@ -400,6 +351,7 @@ virtual protected void OnShaderReady()
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (!_planetReady || HexasphereInputRouter.IsUvProjectionOpen) return;
         // Global key toggle — requires cursor over sphere
         if (@event is InputEventKey { Pressed: true } && Input.IsActionJustPressed("ui_toggle_uv_map") && IsClickEnabled)
         {
@@ -478,13 +430,13 @@ virtual protected void OnShaderReady()
 
     public override void _ExitTree()
     {
+        ShutdownGenerationLifecycle();
         HexasphereInputRouter.Unregister(this);
-        if (UvProjector != null)
+        if (GodotObject.IsInstanceValid(UvProjector))
         {
             UvProjector.ProjectionClosed -= OnProjectionClosed;
         }
-        _hexasphere?.Dispose();
-        _hexasphere = null;
+        CleanupResources();
     }
 
     virtual protected void BuildSpatialIndex(Vector3[] centers)
@@ -578,7 +530,7 @@ virtual protected void OnShaderReady()
     public virtual bool TryGetRayIntersectionWorldDistance(Vector2 screenPos, Camera3D camera, out float worldDist)
     {
         worldDist = float.MaxValue;
-        if (camera == null) return false;
+        if (camera == null || !_planetReady) return false;
         
         Vector3 rayOrigin = camera.ProjectRayOrigin(screenPos);
         Vector3 rayDir = camera.ProjectRayNormal(screenPos);
@@ -589,7 +541,7 @@ virtual protected void OnShaderReady()
         
         // Ray-sphere intersection in local space
         float b = origin.Dot(dir);
-        float c = origin.Dot(origin) - PlanetRadius * PlanetRadius;
+        float c = origin.Dot(origin) - _generatedRadius * _generatedRadius;
         float disc = b * b - c;
         
         // Epsilon for floating-point stability at grazing angles

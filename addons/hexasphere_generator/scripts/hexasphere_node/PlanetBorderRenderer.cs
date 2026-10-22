@@ -5,11 +5,12 @@ using System.Collections.Generic;
 /// Renders the borders between adjacent hexagonal tiles using a line mesh.
 /// Shares the tile color texture with the planet material for consistent coloring.
 /// </summary>
-public class PlanetBorderRenderer
+public class PlanetBorderRenderer : System.IDisposable
 {
     private MeshInstance3D _bordersMeshInstance;
     private ShaderMaterial _borderMaterial;
     private Color _borderColor;
+    private ArrayMesh _mesh;
 
     /// <summary>
     /// Creates a new border renderer and adds the border mesh as a child of the specified parent node.
@@ -34,7 +35,7 @@ public class PlanetBorderRenderer
     /// <param name="borderShader">The shader to use for border rendering.</param>
     public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial, Shader borderShader)
     {
-        var data = hexasphere.GetBorderData();
+        using var data = hexasphere.GetBorderData();
         var positions = (Vector3[])data["positions"];
         var tileLineCounts = (int[])data["tile_line_counts"];
 
@@ -73,7 +74,7 @@ public class PlanetBorderRenderer
             idx += count;
         }
 
-        var arrays = new Godot.Collections.Array();
+        using var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
         arrays[(int)Mesh.ArrayType.Vertex] = vertPositions.ToArray();
         arrays[(int)Mesh.ArrayType.TexUV2] = uv2.ToArray();
@@ -95,6 +96,8 @@ public class PlanetBorderRenderer
         _borderMaterial.SetShaderParameter("border_color", _borderColor);
 
         _bordersMeshInstance.Mesh             = mesh;
+        _mesh?.Dispose();
+        _mesh = mesh;
         _bordersMeshInstance.MaterialOverride = _borderMaterial;
     }
 
@@ -113,6 +116,20 @@ public class PlanetBorderRenderer
     {
         _borderColor = color;
         _borderMaterial?.SetShaderParameter("border_color", color);
+    }
+
+    /// <summary>Releases the border node, mesh and material owned by this renderer.</summary>
+    public void Dispose()
+    {
+        if (GodotObject.IsInstanceValid(_bordersMeshInstance))
+        {
+            _bordersMeshInstance.Mesh = null;
+            _bordersMeshInstance.MaterialOverride = null;
+            _bordersMeshInstance.Free();
+        }
+        _bordersMeshInstance = null;
+        _borderMaterial?.Dispose(); _borderMaterial = null;
+        _mesh?.Dispose(); _mesh = null;
     }
 
     private static Vector3 SnapToGrid(Vector3 v, float gridSize)
