@@ -517,11 +517,6 @@ public partial class HexasphereProjectorController : Node2D
         int tileCount = _hexasphere?.GetTileCount() ?? colors?.Length ?? 0;
         _texWidth = Mathf.CeilToInt(Mathf.Sqrt(tileCount));
         _texHeight = Mathf.CeilToInt((float)tileCount / _texWidth);
-        if (_rasterMode)
-        {
-            _texWidth = _rasterResolution.X;
-            _texHeight = _rasterResolution.Y;
-        }
         if (_colorBuffer != null && _colorBuffer.Length != _texWidth * _texHeight * 4)
             _colorBuffer = null;
 
@@ -553,11 +548,6 @@ public partial class HexasphereProjectorController : Node2D
     private void WriteColorsToImage(Color[] colors)
     {
         if (_tileColorImage == null || _texWidth <= 0 || _texHeight <= 0) return;
-        if (_rasterMode)
-        {
-            WriteRasterColorsToImage(colors);
-            return;
-        }
 
         int count = Mathf.Min(colors?.Length ?? 0, _texWidth * _texHeight);
         int requiredSize = _texWidth * _texHeight * 4;
@@ -567,9 +557,9 @@ public partial class HexasphereProjectorController : Node2D
         for (int i = 0; i < count; i++)
         {
             int offset = i * 4;
-            _colorBuffer[offset + 0] = (byte)(colors[i].R * 255);
-            _colorBuffer[offset + 1] = (byte)(colors[i].G * 255);
-            _colorBuffer[offset + 2] = (byte)(colors[i].B * 255);
+            _colorBuffer[offset + 0] = (byte)(Mathf.Clamp(colors[i].R, 0, 1) * 255);
+            _colorBuffer[offset + 1] = (byte)(Mathf.Clamp(colors[i].G, 0, 1) * 255);
+            _colorBuffer[offset + 2] = (byte)(Mathf.Clamp(colors[i].B, 0, 1) * 255);
             _colorBuffer[offset + 3] = 255;
         }
 

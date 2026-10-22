@@ -13,15 +13,20 @@ uniform vec4 selected_color = vec4(1.0, 0.8, 0.0, 1.0);
 
 void fragment() {
     int idx;
+    vec2 color_uv = UV;
     if (raster_mode) {
         ivec4 encoded = ivec4(round(texture(raster_ids, UV) * 255.0));
         idx = (encoded.r | (encoded.g << 8) | (encoded.b << 16) | (encoded.a << 24)) - 1;
+        // Raster UV addresses the ID map; color UV addresses one texel per tile.
+        int tex_height = (tile_count + tex_width - 1) / tex_width;
+        color_uv = (vec2(float(max(idx, 0) % tex_width), float(max(idx, 0) / tex_width)) + vec2(0.5))
+            / vec2(float(tex_width), float(tex_height));
     } else {
         int tex_height = (tile_count + tex_width - 1) / tex_width;
         idx = int(floor(UV.y * float(tex_height))) * tex_width + int(floor(UV.x * float(tex_width)));
     }
 
-    COLOR = texture(tile_colors, UV);
+    COLOR = idx >= 0 && idx < tile_count ? texture(tile_colors, color_uv) : vec4(0.0, 0.0, 0.0, 1.0);
     COLOR.a = 1.0;
 
     if (idx >= 0 && idx == hover_idx) {

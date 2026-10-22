@@ -17,7 +17,7 @@
 - [x] Offer automatic, detailed-mesh, and raster projection modes, with configurable raster resolution and an automatic tile-count threshold. The reference implementation currently uses 200,000 tiles; treat this as a starting setting, not a measured universal limit.
 - [x] Preserve hover, click, selection, and color updates through the pixel-to-tile ID map. Cache the rasterization across reopenings and color changes, and invalidate it when topology or raster settings change.
 - [x] Document that raster mode reduces UV rendering geometry and hit-test storage; initial topology generation and rasterization still depend on tile count. Describe the loss of detail/picking precision for cells smaller than a raster pixel.
-- [ ] Consider sampling a per-tile color palette through the ID texture in the shader, so recoloring does not require rebuilding a full-resolution color image on the CPU.
+- [x] Sample a per-tile color palette through the ID texture in the shader, so recoloring uploads only the compact palette instead of rebuilding a full-resolution color image on the CPU.
 
 ### Inspector settings and scripting API
 

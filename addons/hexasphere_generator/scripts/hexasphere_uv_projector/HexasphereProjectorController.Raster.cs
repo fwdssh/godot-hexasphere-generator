@@ -164,24 +164,6 @@ public partial class HexasphereProjectorController
         }
     }
 
-    private void WriteRasterColorsToImage(Color[] colors)
-    {
-        int size = _rasterTileIds.Length * 4;
-        if (_colorBuffer == null || _colorBuffer.Length != size) _colorBuffer = new byte[size];
-        for (int i = 0; i < _rasterTileIds.Length; i++)
-        {
-            int tile = _rasterTileIds[i];
-            Color color = colors != null && tile >= 0 && tile < colors.Length ? colors[tile] : Colors.Black;
-            int offset = i * 4;
-            _colorBuffer[offset] = (byte)(Mathf.Clamp(color.R, 0, 1) * 255);
-            _colorBuffer[offset + 1] = (byte)(Mathf.Clamp(color.G, 0, 1) * 255);
-            _colorBuffer[offset + 2] = (byte)(Mathf.Clamp(color.B, 0, 1) * 255);
-            _colorBuffer[offset + 3] = 255;
-        }
-        _tileColorImage.SetData(_rasterResolution.X, _rasterResolution.Y, false, Image.Format.Rgba8, _colorBuffer);
-        _tileColorTexture.Update(_tileColorImage);
-    }
-
     private void ClearRasterCache()
     {
         _rasterIdTexture?.Dispose();

@@ -219,7 +219,7 @@ Configure `HexasphereProjectorController` through standard Inspector properties 
 
 Raster mode draws two triangles and stores a pixel-to-tile ID map for hover, selection, and picking. It avoids a per-tile UV rendering mesh and its hit-test triangle storage. Native topology generation and initial rasterization still depend on tile count. The 200,000-tile threshold is configurable, not a hardware-independent performance guarantee; raster mode does not simplify the 3D sphere.
 
-Raster detail and picking are limited by pixel resolution. Cells smaller than a pixel may not be represented; zooming does not add detail. Dimensions must be 1–8192 with at most 16,777,216 pixels total. ID/color buffers and textures each require memory proportional to the raster resolution.
+Raster detail and picking are limited by pixel resolution. Cells smaller than a pixel may not be represented; zooming does not add detail. Dimensions must be 1–8192 with at most 16,777,216 pixels total. ID buffers and textures require memory proportional to the raster resolution. Colors use a compact palette with one texel per tile (plus row padding), shared by both projection modes. Raster's shader resolves colors through the ID map, so recoloring uploads only the palette and its CPU work is independent of raster resolution.
 
 ### From C#
 
