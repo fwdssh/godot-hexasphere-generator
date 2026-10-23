@@ -16,9 +16,9 @@ public partial class HexasphereNode
     [ExportGroup("Generation")]
     /// <summary>Generate automatically in _Ready. Disable to start explicitly from code.</summary>
     [Export] public bool AutoGenerate { get => _shouldAutoGenerate; set => _shouldAutoGenerate = value; }
-    /// <summary>Soft per-node main-thread upload budget. Zero keeps one synchronous surface.</summary>
+    /// <summary>Soft per-node budget for sphere/border uploads and default initial colors. Zero keeps synchronous setup.</summary>
     [Export(PropertyHint.Range, "0,16,0.5,or_greater")] public float MeshUploadBudgetMilliseconds { get; set; } = 4;
-    /// <summary>Target cells per surface. Raised automatically if needed to fit the engine's surface limit.</summary>
+    /// <summary>Target cells per sphere surface and color batch; borders target six vertices per cell. Surface sizes grow to fit engine limits.</summary>
     [Export(PropertyHint.Range, "1,65536,1,or_greater")] public int MeshUploadTilesPerSurface { get; set; } = 8192;
 
     public HexasphereGenerationState GenerationState { get; private set; }
@@ -68,6 +68,8 @@ public partial class HexasphereNode
         public ArrayMesh UploadMesh;
         public NativeHexasphere UploadSource;
         public long UploadVersion;
+        public Color[] PreparedColors;
+        public int PreparedColorCount;
 
         public GenerationRequest(long id, HexasphereGenerationSettings settings)
         {
@@ -190,6 +192,7 @@ public partial class HexasphereNode
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
                     request.SpatialIndex = null; request.Borders = null;
+                    request.PreparedColors = null;
                 }
                 if (!request.WorkerStarted) request.DisposeCancellation();
             }
@@ -264,7 +267,9 @@ public partial class HexasphereNode
                 request.Token.ThrowIfCancellationRequested();
                 request.SpatialIndex = PrepareSpatialIndex(request.Centers, request.Token);
                 if (request.Settings.Borders)
-                    request.Borders = PlanetBorderRenderer.PrepareGeometry(request.Native, request.Token);
+                    request.Borders = PlanetBorderRenderer.PrepareGeometry(request.Native, request.Token,
+                        request.Settings.MeshUploadBudgetMilliseconds > 0
+                            ? (int)Math.Min((long)request.Settings.MeshUploadTilesPerSurface * 6, int.MaxValue) : int.MaxValue);
                 request.Token.ThrowIfCancellationRequested();
                 lock (_generationLock)
                 {
@@ -357,6 +362,12 @@ public partial class HexasphereNode
             catch (Exception error) { FailGeneration(request, error); }
         }
         var active = _activeGeneration;
+        if (IsCurrentGeneration(active) && active.PreparedColors != null)
+        {
+            try { AdvanceGenerationColors(active); }
+            catch (Exception error) { FailGeneration(active, error); }
+            return;
+        }
         if (IsCurrentGeneration(active) && active.UploadMesh != null && active.Native != null)
         {
             try
@@ -452,6 +463,7 @@ public partial class HexasphereNode
             VisualController.ShaderInitializationFailed += OnGenerationShaderFailed;
             VisualController.SetPreparedBorders(request.Borders);
             request.Borders = null;
+            VisualController.SetUploadBudget(settings.MeshUploadBudgetMilliseconds);
             VisualController.ApplyGenerated(mesh, settings.Borders, settings.ColorsShader, settings.BordersShader);
             if (IsCurrentGeneration(request)) VisualController.SetBorderColor(settings.BorderColor);
         }
@@ -469,10 +481,54 @@ public partial class HexasphereNode
         VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
         try
         {
-            OnShaderReady();
-            if (IsCurrentGeneration(request)) CompleteGenerationRequest();
+            // Preserve synchronous base-call semantics inside custom ready/draw
+            // hooks. GetColor remains virtual and runs on the main thread.
+            if (request.Settings.MeshUploadBudgetMilliseconds > 0
+                && _cellDatas.Length > request.Settings.MeshUploadTilesPerSurface
+                && GetType().GetMethod(nameof(OnShaderReady), System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic, null, Type.EmptyTypes, null)?.DeclaringType == typeof(HexasphereNode)
+                && VisualController.CanPrepareColorsIncrementally)
+                request.PreparedColors = new Color[_cellDatas.Length];
+            else FinishGenerationVisuals(request);
         }
         catch (Exception error) { FailGeneration(request, error); }
+    }
+
+    private void AdvanceGenerationColors(GenerationRequest request)
+    {
+        if (!GodotObject.IsInstanceValid(VisualController) || !VisualController.IsInsideTree())
+            throw new InvalidOperationException("The visual controller was removed during color preparation.");
+        if (request.PreparedColorCount == request.PreparedColors.Length)
+        {
+            // Upload the packed texture and invoke the ready hook on a fresh frame.
+            FinishGenerationVisuals(request);
+            return;
+        }
+        var frame = Stopwatch.StartNew();
+        do
+        {
+            var chunk = Stopwatch.StartNew();
+            int count = Math.Min(request.Settings.MeshUploadTilesPerSurface,
+                request.PreparedColors.Length - request.PreparedColorCount);
+            int end = request.PreparedColorCount + count;
+            for (int i = request.PreparedColorCount; i < end; i++)
+            {
+                Color color = VisualController.GetColor(_cellDatas[i]);
+                // A custom color hook may cancel, restart or remove the node.
+                if (!IsCurrentGeneration(request)) return;
+                request.PreparedColors[i] = color;
+                VisualController.PrepareTileColor(i, color);
+            }
+            request.PreparedColorCount = end;
+            if (end == request.PreparedColors.Length) return;
+            if (frame.Elapsed.TotalMilliseconds + chunk.Elapsed.TotalMilliseconds >= request.Settings.MeshUploadBudgetMilliseconds) return;
+        } while (IsCurrentGeneration(request));
+    }
+
+    private void FinishGenerationVisuals(GenerationRequest request)
+    {
+        OnShaderReady();
+        if (IsCurrentGeneration(request)) CompleteGenerationRequest();
     }
 
     private void OnGenerationShaderFailed(string error) => FailGeneration(_activeGeneration, new InvalidOperationException(error));
@@ -481,10 +537,21 @@ public partial class HexasphereNode
     {
         var request = _activeGeneration;
         if (!IsCurrentGeneration(request)) return;
+        if (request.PreparedColors != null) VisualController.UsePreparedColors(_cellDatas);
         VisualController.DrawColors(_cellDatas);
+        if (!IsCurrentGeneration(request)) return;
         VisualController.SetEmissive(request.Settings.Emissive);
-        _tileColors = new Color[_cellDatas.Length];
-        for (int i = 0; i < _tileColors.Length; i++) _tileColors[i] = VisualController.GetColor(_cellDatas[i]);
+        if (!IsCurrentGeneration(request)) return;
+        if (request.PreparedColors != null)
+        {
+            _tileColors = request.PreparedColors;
+            request.PreparedColors = null;
+        }
+        else
+        {
+            _tileColors = new Color[_cellDatas.Length];
+            for (int i = 0; i < _tileColors.Length; i++) _tileColors[i] = VisualController.GetColor(_cellDatas[i]);
+        }
     }
 
     private void CompleteGenerationRequest()

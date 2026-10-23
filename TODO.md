@@ -8,7 +8,7 @@
 - [x] Reduce main-thread finalization pauses by preparing the default spatial index and deduplicated border geometry on the request's worker. Preserve cancellation, custom generation/finalization hooks and the standalone border API; verify the improvement with repeated graphics measurements.
 - [x] Separate native CPU sphere-mesh array preparation from `ArrayMesh` resource creation. Prepare arrays on the request worker, preserve direct `BuildMesh()` and old-binary fallbacks, invalidate on regeneration and release staging after application; measure both phases separately.
 - [x] Spread large sphere-mesh surface creation across frames with a configurable soft per-node budget and target cells per surface. Measure draw calls and time to Ready, preserve cancellation/custom finalization and the standalone single-surface API, and cap surfaces to the engine limit.
-- [ ] Investigate the remaining final-frame border/material/color upload pause. Compare incremental border upload against its added surfaces and time to Ready; sphere upload budgeting does not cover that final visual setup or provide a global scene budget.
+- [x] Reduce the remaining final-frame border/material/color pause: upload prepared borders incrementally and prepare default colors across frames. Compare added surfaces/draw calls and time to Ready; preserve synchronous custom hooks and standalone borders. The soft per-node budget still does not provide a global scene/frame-time guarantee.
 
 ## Installation and release documentation
 

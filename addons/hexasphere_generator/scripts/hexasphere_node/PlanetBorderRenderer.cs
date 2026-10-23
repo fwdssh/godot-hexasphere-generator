@@ -13,11 +13,18 @@ public class PlanetBorderRenderer : System.IDisposable
     private Color _borderColor;
     private ArrayMesh _mesh;
     private PreparedGeometry _preparedGeometry;
+    private PreparedSurface[] _uploadSurfaces;
+    private int _nextSurface;
+    private bool _visible = true;
 
     // CPU arrays and their source identity; no rendering resources or scene
     // nodes are created until BuildStaticBorders runs on the main thread.
-    internal sealed record PreparedGeometry(Vector3[] Positions, Vector2[] TilePairs,
+    internal sealed record PreparedSurface(Vector3[] Positions, Vector2[] TilePairs);
+    internal sealed record PreparedGeometry(PreparedSurface[] Surfaces,
         NativeHexasphere Source, long SourceVersion);
+
+    internal bool IsUploading => _uploadSurfaces != null;
+    internal bool HasSingleUploadSurface => _uploadSurfaces?.Length == 1;
 
     /// <summary>
     /// Creates a new border renderer and adds the border mesh as a child of the specified parent node.
@@ -37,7 +44,11 @@ public class PlanetBorderRenderer : System.IDisposable
 
     /// <summary>Shows or hides the border mesh.</summary>
     /// <param name="visible">True to show borders, false to hide.</param>
-    public virtual void SetVisible(bool visible) => _bordersMeshInstance.Visible = visible;
+    public virtual void SetVisible(bool visible)
+    {
+        _visible = visible;
+        _bordersMeshInstance.Visible = visible && !IsUploading;
+    }
 
     /// <summary>
     /// Builds the static border line mesh by deduplicating shared edges between adjacent tiles.
@@ -47,6 +58,12 @@ public class PlanetBorderRenderer : System.IDisposable
     /// <param name="borderShader">The shader to use for border rendering.</param>
     public virtual void BuildStaticBorders(NativeHexasphere hexasphere, ShaderMaterial planetMaterial, Shader borderShader)
     {
+        BeginUpload(hexasphere, planetMaterial, borderShader);
+        AdvanceUpload(0);
+    }
+
+    internal void BeginUpload(NativeHexasphere hexasphere, ShaderMaterial planetMaterial, Shader borderShader)
+    {
         var geometry = _preparedGeometry;
         _preparedGeometry = null;
         // A custom finalization hook may replace or regenerate the native instance.
@@ -54,16 +71,9 @@ public class PlanetBorderRenderer : System.IDisposable
             || geometry.SourceVersion != hexasphere.GeometryVersion)) geometry = null;
         geometry ??= PrepareGeometry(hexasphere, CancellationToken.None);
 
-        using var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = geometry.Positions;
-        arrays[(int)Mesh.ArrayType.TexUV2] = geometry.TilePairs;
-
         var mesh = new ArrayMesh();
         try
         {
-            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
-
             var shader = borderShader;
             _borderMaterial?.Dispose();
             _borderMaterial = new ShaderMaterial();
@@ -82,11 +92,39 @@ public class PlanetBorderRenderer : System.IDisposable
             _mesh?.Dispose();
             _mesh = mesh;
             _bordersMeshInstance.MaterialOverride = _borderMaterial;
+            _bordersMeshInstance.Visible = false;
+            _uploadSurfaces = geometry.Surfaces;
+            _nextSurface = 0;
         }
         catch { mesh.Dispose(); throw; }
     }
 
-    internal static PreparedGeometry PrepareGeometry(NativeHexasphere hexasphere, CancellationToken token)
+    internal void AdvanceUpload(double budgetMilliseconds)
+    {
+        if (!IsUploading) return;
+        var frame = System.Diagnostics.Stopwatch.StartNew();
+        do
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var surface = _uploadSurfaces[_nextSurface];
+            using var arrays = new Godot.Collections.Array();
+            arrays.Resize((int)Mesh.ArrayType.Max);
+            arrays[(int)Mesh.ArrayType.Vertex] = surface.Positions;
+            arrays[(int)Mesh.ArrayType.TexUV2] = surface.TilePairs;
+            var mesh = _mesh;
+            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
+            _uploadSurfaces[_nextSurface++] = null;
+            if (_nextSurface == _uploadSurfaces.Length)
+            {
+                _uploadSurfaces = null;
+                _bordersMeshInstance.Visible = _visible;
+                return;
+            }
+            if (budgetMilliseconds > 0 && frame.Elapsed.TotalMilliseconds + clock.Elapsed.TotalMilliseconds >= budgetMilliseconds) return;
+        } while (true);
+    }
+
+    internal static PreparedGeometry PrepareGeometry(NativeHexasphere hexasphere, CancellationToken token, int verticesPerSurface = int.MaxValue)
     {
         token.ThrowIfCancellationRequested();
         long sourceVersion = hexasphere.GeometryVersion;
@@ -132,7 +170,23 @@ public class PlanetBorderRenderer : System.IDisposable
         }
 
         token.ThrowIfCancellationRequested();
-        return new PreparedGeometry(vertPositions.ToArray(), uv2.ToArray(), hexasphere, sourceVersion);
+        // Keep complete line pairs and leave enough vertices per surface for the
+        // engine's 256-surface limit, including independent edges on gapped tiles.
+        int minimum = (int)(((long)vertPositions.Count + 255) / 256);
+        int chunkSize = System.Math.Max(minimum, verticesPerSurface);
+        chunkSize = (int)System.Math.Min((long)chunkSize + (chunkSize & 1), int.MaxValue - 1L);
+        var surfaces = new PreparedSurface[(int)(((long)vertPositions.Count + chunkSize - 1) / chunkSize)];
+        for (int i = 0, offset = 0; i < surfaces.Length; i++, offset += chunkSize)
+        {
+            token.ThrowIfCancellationRequested();
+            int length = System.Math.Min(chunkSize, vertPositions.Count - offset);
+            var surfacePositions = new Vector3[length];
+            var surfaceOwners = new Vector2[length];
+            vertPositions.CopyTo(offset, surfacePositions, 0, length);
+            uv2.CopyTo(offset, surfaceOwners, 0, length);
+            surfaces[i] = new PreparedSurface(surfacePositions, surfaceOwners);
+        }
+        return new PreparedGeometry(surfaces, hexasphere, sourceVersion);
     }
 
     /// <summary>
@@ -156,6 +210,7 @@ public class PlanetBorderRenderer : System.IDisposable
     public void Dispose()
     {
         _preparedGeometry = null;
+        _uploadSurfaces = null;
         if (GodotObject.IsInstanceValid(_bordersMeshInstance))
         {
             _bordersMeshInstance.Mesh = null;

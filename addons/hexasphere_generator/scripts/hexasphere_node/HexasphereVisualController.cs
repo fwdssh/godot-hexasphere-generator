@@ -31,6 +31,27 @@ public partial class HexasphereVisualController : Node3D
     private byte[] _colorBuffer;
     private long _materialBuildId;
     private PlanetBorderRenderer.PreparedGeometry _preparedBorders;
+    private double _uploadBudgetMilliseconds;
+    private SceneTree _initializationTree;
+    private ICellData[] _preparedColorCells;
+
+    internal bool CanPrepareColorsIncrementally => _tileColorImage != null && _tileColorTexture != null
+        && GetType().GetMethod(nameof(DrawColors), new[] { typeof(ICellData[]) })?.DeclaringType
+            == typeof(HexasphereVisualController);
+
+    internal void UsePreparedColors(ICellData[] cells) => _preparedColorCells = cells;
+
+    internal void PrepareTileColor(int index, Color color)
+    {
+        _colorBuffer ??= new byte[_texWidth * _texHeight * 4];
+        int offset = index * 4;
+        _colorBuffer[offset] = (byte)(color.R * 255);
+        _colorBuffer[offset + 1] = (byte)(color.G * 255);
+        _colorBuffer[offset + 2] = (byte)(color.B * 255);
+        _colorBuffer[offset + 3] = (byte)(color.A * 255);
+    }
+
+    internal void SetUploadBudget(double milliseconds) => _uploadBudgetMilliseconds = milliseconds;
 
     internal void SetPreparedBorders(PlanetBorderRenderer.PreparedGeometry geometry)
     {
@@ -112,7 +133,14 @@ public partial class HexasphereVisualController : Node3D
         {
             InitShaderMaterial();
             if (buildId == _materialBuildId && IsInsideTree() && _planetArrayMesh != null)
-                EmitSignal(SignalName.ShaderReady);
+            {
+                if (_borderRenderer?.IsUploading == true)
+                {
+                    _initializationTree = GetTree();
+                    _initializationTree.ProcessFrame += AdvanceGeneratedVisuals;
+                }
+                else EmitSignal(SignalName.ShaderReady);
+            }
         }
         catch (System.Exception error)
         {
@@ -122,10 +150,41 @@ public partial class HexasphereVisualController : Node3D
         }
     }
 
+    private void AdvanceGeneratedVisuals()
+    {
+        long buildId = _materialBuildId;
+        if (!IsInsideTree() || _planetArrayMesh == null) return;
+        try
+        {
+            if (_borderRenderer?.IsUploading == true)
+            {
+                _borderRenderer.AdvanceUpload(_uploadBudgetMilliseconds);
+                // Keep the ready/color hook off the final border-upload frame.
+                return;
+            }
+            StopVisualInitialization();
+            EmitSignal(SignalName.ShaderReady);
+        }
+        catch (System.Exception error)
+        {
+            if (buildId != _materialBuildId) return;
+            ClearGenerated();
+            EmitSignal(SignalName.ShaderInitializationFailed, error.Message);
+        }
+    }
+
+    private void StopVisualInitialization()
+    {
+        if (GodotObject.IsInstanceValid(_initializationTree))
+            _initializationTree.ProcessFrame -= AdvanceGeneratedVisuals;
+        _initializationTree = null;
+    }
+
     /// <summary>Releases owned rendering resources without disposing the node-owned native data.</summary>
     public virtual void ClearGenerated()
     {
         _materialBuildId++;
+        StopVisualInitialization();
         _preparedBorders = null;
         _borderRenderer?.Dispose();
         _borderRenderer = null;
@@ -141,6 +200,7 @@ public partial class HexasphereVisualController : Node3D
         _tileColorImage?.Dispose(); _tileColorImage = null;
         _planetArrayMesh?.Dispose(); _planetArrayMesh = null;
         _colorBuffer = null;
+        _preparedColorCells = null;
         _tileCount = 0;
         _isBorderVisible = false;
         Hexasphere = null;
@@ -171,7 +231,15 @@ public partial class HexasphereVisualController : Node3D
         _planetMeshInstance.MaterialOverride = _planetMaterial;
 
         if (_isBorderVisible)
-            _borderRenderer.BuildStaticBorders(Hexasphere, _planetMaterial, _bordersShader);
+        {
+            if (_uploadBudgetMilliseconds > 0)
+            {
+                _borderRenderer.BeginUpload(Hexasphere, _planetMaterial, _bordersShader);
+                // Small meshes need no extra process-frame waits.
+                if (_borderRenderer.HasSingleUploadSurface) _borderRenderer.AdvanceUpload(0);
+            }
+            else _borderRenderer.BuildStaticBorders(Hexasphere, _planetMaterial, _bordersShader);
+        }
 
     }
 
@@ -187,14 +255,12 @@ public partial class HexasphereVisualController : Node3D
         int requiredSize = _texWidth * _texHeight * 4;
         if (_colorBuffer == null || _colorBuffer.Length != requiredSize)
             _colorBuffer = new byte[requiredSize];
-        for (int i = 0; i < safeLength; i++)
+        bool prepared = ReferenceEquals(_preparedColorCells, cellDatas);
+        _preparedColorCells = null;
+        for (int i = 0; !prepared && i < safeLength; i++)
         {
             Color c = GetColor(cellDatas[i]);
-            int offset = i * 4;
-            _colorBuffer[offset + 0] = (byte)(c.R * 255);
-            _colorBuffer[offset + 1] = (byte)(c.G * 255);
-            _colorBuffer[offset + 2] = (byte)(c.B * 255);
-            _colorBuffer[offset + 3] = (byte)(c.A * 255);
+            PrepareTileColor(i, c);
         }
         using var img = Image.CreateFromData(_texWidth, _texHeight, false, Image.Format.Rgba8, _colorBuffer);
         _tileColorTexture.Update(img);
