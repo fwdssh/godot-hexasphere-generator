@@ -158,11 +158,12 @@ public partial class HexasphereNode : Node3D
 
     virtual protected void CleanupResources()
     {
+        var requestController = _activeGeneration?.Controller;
         InvalidateGenerationRequest();
-        ResetGeneratedPlanet();
+        ResetGeneratedPlanet(requestController);
     }
 
-    private void ResetGeneratedPlanet()
+    private void ResetGeneratedPlanet(HexasphereVisualController requestController)
     {
         long revision = ++_interactionRevision;
         bool hadHover = _hoveredTileIndex != -1;
@@ -179,14 +180,17 @@ public partial class HexasphereNode : Node3D
         _pendingHexasphere = null;
         _pendingCenters = null;
         _pendingCellDatas = null;
-        if (GodotObject.IsInstanceValid(VisualController))
+        var currentController = VisualController;
+        if (GodotObject.IsInstanceValid(requestController) && !ReferenceEquals(requestController, currentController))
+            requestController.ClearGenerated();
+        if (_interactionRevision == revision && GodotObject.IsInstanceValid(currentController))
         {
-            VisualController.ShaderReady -= OnGenerationShaderReady;
-            VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
-            VisualController.ClearGenerated();
+            currentController.ShaderReady -= OnGenerationShaderReady;
+            currentController.ShaderInitializationFailed -= OnGenerationShaderFailed;
+            currentController.ClearGenerated();
         }
         // Publish the reset before close/hover signals can start another generation.
-        if (HexasphereInputRouter.IsUvProjectionOwner(this))
+        if (_interactionRevision == revision && HexasphereInputRouter.IsUvProjectionOwner(this))
             CloseUvProjectorFromRouter();
         if (GodotObject.IsInstanceValid(UvProjector))
             UvProjector.InvalidateSource(source);
@@ -349,7 +353,7 @@ virtual protected void OnShaderReady()
 
     private void OnUvTileHovered(int tileIndex)
     {
-        if (!OwnsActiveUv() || !CanProcess() || !IsHoverEnabled || tileIndex < -1 || tileIndex >= TileCount
+        if (!OwnsActiveUv() || !CanProcess() || (!IsHoverEnabled && tileIndex >= 0) || tileIndex < -1 || tileIndex >= TileCount
             || tileIndex == _hoveredTileIndex) return;
         _hoveredTileIndex = tileIndex;
         ApplyVisualSelection();
@@ -490,9 +494,17 @@ virtual protected void OnShaderReady()
     public override void _ExitTree()
     {
         ShutdownGenerationLifecycle();
-        HexasphereInputRouter.Unregister(this);
-        UnsubscribeUvSignals();
-        CleanupResources();
+        try
+        {
+            HexasphereInputRouter.Unregister(this);
+            UnsubscribeUvSignals();
+            CleanupResources();
+        }
+        finally
+        {
+            // Invalidate even when a custom cleanup omits base or throws.
+            InvalidateGenerationRequest();
+        }
     }
 
     virtual protected void BuildSpatialIndex(Vector3[] centers)

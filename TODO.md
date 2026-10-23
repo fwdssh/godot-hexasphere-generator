@@ -17,6 +17,16 @@ Completed the following audit fixes; verification covered Windows x86-64 debug/r
 - [x] **B2 — Safe direct native input boundary.** Validate finite positive radius, supported subdivision bounds and hex-size inputs at the exposed native API as well as the managed wrapper. Ensure invalid direct C#/ClassDB calls cannot propagate an uncaught C++ exception across GDExtension or construct invalid geometry; preserve the normal node lifecycle's validation behavior.
 - [x] **B3 — Native wrapper disposal contract.** Synchronize disposal with pending/in-flight operations, or explicitly enforce a supported concurrency contract. Guard disposed methods with a clear disposed-object error, keep disposal idempotent and verify a waiting query cannot resume against a cleared native reference.
 
+## Verification follow-ups — 2026-10-24
+
+- [x] **C1 — Disabled UV hover.** Clear the projector and sphere hover indices/highlights and emit the clearing signal on mouse motion after either hover flag is disabled.
+- [x] **C2 — Closing a failed UV rebuild.** Keep the close input action available when an explicitly open map fails to rebuild; return camera ownership to 3D.
+- [x] **C3 — Previous-owner removal during switching.** Retain the viewport state through synchronous close callbacks that unregister the old owner, and preserve nested ownership decisions.
+- [x] **C4 — Standalone source invalidation.** After close callbacks, verify the projector still holds the invalidated source before clearing resources; preserve a newly opened owner's map.
+- [x] **C5 — Replaced visual-controller cleanup.** Clear the original request controller as well as its replacement, including external controllers during node removal. Preserve generation restarted from a cleanup callback.
+- [x] **C6 — Empty native neighbor data.** Return empty neighbor lists before the first successful generation instead of allocating a negative array length.
+- [x] **C7 — Exact mesh tile IDs.** Apply the float-channel tile/owner ID bound consistently in node, managed and native validation: subdivisions 1–1295. Reject larger requests before allocation and preserve previous geometry/prepared arrays.
+
 ## Generation lifecycle
 
 - [x] Make generation controllable and expose its state: not started, generating, ready, failed, and cancelled. Provide generation/restart/cancellation entry points and lifecycle signals that can be used from C# and GDScript.

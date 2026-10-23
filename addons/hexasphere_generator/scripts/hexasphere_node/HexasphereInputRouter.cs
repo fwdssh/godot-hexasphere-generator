@@ -11,6 +11,7 @@ public static class HexasphereInputRouter
         public Camera3D Camera;
         public long Revision;
         public long SelectionRevision;
+        public int PendingRequests;
         public InputEvent CachedEvent;
         public Camera3D CachedCamera;
         public Transform3D CameraTransform;
@@ -47,7 +48,7 @@ public static class HexasphereInputRouter
         {
             var state = _viewports[viewport];
             if (state.Owner == sphere) Release(state);
-            if (state.Owner == null && state.Camera == null) _viewports.Remove(viewport);
+            if (state.Owner == null && state.Camera == null && state.PendingRequests == 0) _viewports.Remove(viewport);
         }
     }
 
@@ -123,17 +124,29 @@ public static class HexasphereInputRouter
     public static bool RequestUvProjection(HexasphereNode sphere)
     {
         if (!Alive(sphere)) return false;
-        var state = State(sphere.GetViewport());
+        var viewport = sphere.GetViewport();
+        var state = State(viewport);
         if (state.Owner == sphere) return true;
         state.CachedEvent = null;
         long revision = ++state.Revision;
-        var previous = state.Owner;
-        if (Alive(previous)) previous.CloseUvProjectorFromRouter();
-        else Release(state);
-        // Closing emits public signals: a nested request owns the newer decision.
-        if (state.Revision != revision || !Alive(sphere)) return false;
-        state.Owner = sphere;
-        return true;
+        state.PendingRequests++;
+        try
+        {
+            var previous = state.Owner;
+            if (Alive(previous)) previous.CloseUvProjectorFromRouter();
+            else Release(state);
+            // Closing emits public signals: a nested request owns the newer decision.
+            // Keep this state registered while callbacks remove the previous owner.
+            if (state.Revision != revision || !Alive(sphere) || sphere.GetViewport() != viewport) return false;
+            state.Owner = sphere;
+            return true;
+        }
+        finally
+        {
+            state.PendingRequests--;
+            if (state.PendingRequests == 0 && state.Owner == null && state.Camera == null)
+                _viewports.Remove(viewport);
+        }
     }
 
     public static void OnUvProjectionClosed(HexasphereNode sphere)

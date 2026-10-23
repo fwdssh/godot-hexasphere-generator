@@ -19,10 +19,12 @@ Hexasphere::~Hexasphere() = default;
 
 bool Hexasphere::are_valid_parameters(double radius, int64_t divisions, double hexSize)
 {
-    // Mesh arrays use signed 32-bit vertex counts, at most 18 vertices per tile.
+    // Tile IDs are stored in float UV channels (also border owners). Consecutive
+    // integers must stay exactly representable; this is stricter than the signed
+    // 32-bit mesh vertex-count limit of at most 18 vertices per tile.
     const double tile_count = 10.0 * double(divisions) * double(divisions) + 2.0;
     return std::isfinite(radius) && radius > 0.0 && divisions >= 1
-        && tile_count <= std::numeric_limits<int32_t>::max() / 18
+        && tile_count <= (1 << 24)
         && std::isfinite(hexSize) && hexSize >= 0.1 && hexSize <= 1.0;
 }
 

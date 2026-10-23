@@ -82,8 +82,9 @@ public partial class HexasphereProjectorController : Node2D
 
     /// <summary>True only after an explicit open of a ready map.</summary>
     public bool IsProjectionOpen => _projectionOpen;
-    internal bool CanReceiveInput => _projectionOpen && IsInsideTree() && !IsQueuedForDeletion()
-        && IsVisibleInTree() && CanProcess() && IsProjectionReady()
+    internal bool CanReceiveInput => CanReceiveViewInput && IsProjectionReady();
+    private bool CanReceiveViewInput => _projectionOpen && IsInsideTree() && !IsQueuedForDeletion()
+        && IsVisibleInTree() && CanProcess()
         && (_projectionOwner == null || (GodotObject.IsInstanceValid(_projectionOwner)
             && _projectionOwner.IsReady && _projectionOwner.IsVisibleInTree() && _projectionOwner.CanProcess()
             && !_projectionOwner.IsQueuedForDeletion() && HexasphereInputRouter.IsUvProjectionOwner(_projectionOwner)));
@@ -867,7 +868,7 @@ public partial class HexasphereProjectorController : Node2D
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!CanReceiveInput) return;
+        if (!CanReceiveViewInput) return;
         var viewport = GetViewport();
         long revision = _projectionRevision;
 
@@ -883,10 +884,10 @@ public partial class HexasphereProjectorController : Node2D
         Vector2 pos = ToLocal(GetGlobalMousePosition());
         bool inBounds = pos.Y >= 0 && pos.Y <= _lastMapSize.Y && pos.X >= 0 && pos.X <= _lastMapSize.X;
 
-        if (@event is InputEventMouseMotion && IsHoverEnabled && (_projectionOwner?.IsHoverEnabled ?? true))
+        if (@event is InputEventMouseMotion)
         {
             int newHover = -1;
-            if (inBounds)
+            if (inBounds && IsHoverEnabled && (_projectionOwner?.IsHoverEnabled ?? true))
                 newHover = HitTest(pos);
 
             if (newHover != _hoveredTile)
@@ -1056,6 +1057,8 @@ public partial class HexasphereProjectorController : Node2D
             return;
         }
         CloseProjection();
+        // Closing can synchronously build/open another sphere in this shared view.
+        if (!GodotObject.IsInstanceValid(this) || _hexasphere != source) return;
         ReleaseProjectionResources();
         _hexasphere = null;
         _cachedHexasphere = null;

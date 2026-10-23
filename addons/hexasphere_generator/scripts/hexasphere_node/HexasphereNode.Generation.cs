@@ -170,8 +170,8 @@ public partial class HexasphereNode
             GenerationStage = HexasphereGenerationStage.NotStarted;
             CompletedGenerationStages = 0;
         }
-        // Invalidate even if a subclass customizes CleanupResources.
-        InvalidateGenerationRequest();
+        // Keep the request's controller available to CleanupResources. Shutdown
+        // already prevents workers from publishing; _ExitTree invalidates finally.
     }
 
     private void InvalidateGenerationRequest()
@@ -238,8 +238,8 @@ public partial class HexasphereNode
             var settings = new HexasphereGenerationSettings(this);
             if (!float.IsFinite(settings.Radius) || settings.Radius <= 0)
                 throw new ArgumentOutOfRangeException(nameof(PlanetRadius), "PlanetRadius must be finite and positive.");
-            if (settings.Subdivision < 1 || 10.0 * settings.Subdivision * settings.Subdivision + 2 > int.MaxValue / 18)
-                throw new ArgumentOutOfRangeException(nameof(SubDivision), "SubDivision must be positive and fit the mesh's 32-bit vertex counts.");
+            if (settings.Subdivision < 1 || 10.0 * settings.Subdivision * settings.Subdivision + 2 > (1 << 24))
+                throw new ArgumentOutOfRangeException(nameof(SubDivision), "SubDivision must be within 1..1295 so mesh tile IDs remain exact.");
             if (!float.IsFinite(settings.HexSize) || settings.HexSize < 0.1f || settings.HexSize > 1)
                 throw new ArgumentOutOfRangeException(nameof(HexSize), "HexSize must be finite and within 0.1..1.");
             if (!float.IsFinite(settings.MeshUploadBudgetMilliseconds) || settings.MeshUploadBudgetMilliseconds < 0

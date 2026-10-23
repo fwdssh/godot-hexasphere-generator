@@ -85,8 +85,9 @@ public class NativeHexasphere : IDisposable
             ThrowIfDisposed();
             if (!float.IsFinite(radius) || radius <= 0)
                 throw new ArgumentOutOfRangeException(nameof(radius), "Radius must be finite and positive.");
-            if (divisions < 1 || 10.0 * divisions * divisions + 2 > int.MaxValue / 18)
-                throw new ArgumentOutOfRangeException(nameof(divisions), "Divisions must be positive and fit the mesh's 32-bit vertex counts.");
+            // Float UV channels must preserve consecutive tile/owner IDs exactly.
+            if (divisions < 1 || 10.0 * divisions * divisions + 2 > (1 << 24))
+                throw new ArgumentOutOfRangeException(nameof(divisions), "Divisions must be within 1..1295 so mesh tile IDs remain exact.");
             if (!float.IsFinite(hexSize) || hexSize < 0.1f || hexSize > 1)
                 throw new ArgumentOutOfRangeException(nameof(hexSize), "Hex size must be finite and within 0.1..1.");
             var result = _native.Call(MethodGenerate, radius, divisions, hexSize);
@@ -295,6 +296,7 @@ public class NativeHexasphere : IDisposable
     {
         int[] neighborIndices = (int[])data["neighbor_indices"];
         int[] offsets = (int[])data["offsets"];
+        if (offsets.Length == 0) return System.Array.Empty<int[]>();
         int tileCount = offsets.Length - 1;
         int[][] result = new int[tileCount][];
         for (int t = 0; t < tileCount; t++)
