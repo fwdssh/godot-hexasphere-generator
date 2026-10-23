@@ -1,7 +1,17 @@
 [configuration]
 entry_symbol = "hexasphere_init"
-compatibility_minimum = "4.6"
+compatibility_minimum = "4.7"
 
 [libraries]
-windows = "res://addons/hexasphere_generator/bin/hexasphere.dll"
-linux = "res://addons/hexasphere_generator/bin/libhexasphere.so"
+windows.debug.x86_64 = "res://addons/hexasphere_generator/bin/hexasphere.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/hexasphere_generator/bin/hexasphere.windows.template_release.x86_64.dll"
+windows.debug.arm64 = "res://addons/hexasphere_generator/bin/hexasphere.windows.template_debug.arm64.dll"
+windows.release.arm64 = "res://addons/hexasphere_generator/bin/hexasphere.windows.template_release.arm64.dll"
+linux.debug.x86_64 = "res://addons/hexasphere_generator/bin/libhexasphere.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://addons/hexasphere_generator/bin/libhexasphere.linux.template_release.x86_64.so"
+linux.debug.arm64 = "res://addons/hexasphere_generator/bin/libhexasphere.linux.template_debug.arm64.so"
+linux.release.arm64 = "res://addons/hexasphere_generator/bin/libhexasphere.linux.template_release.arm64.so"
+macos.debug.x86_64 = "res://addons/hexasphere_generator/bin/libhexasphere.macos.template_debug.x86_64.dylib"
+macos.release.x86_64 = "res://addons/hexasphere_generator/bin/libhexasphere.macos.template_release.x86_64.dylib"
+macos.debug.arm64 = "res://addons/hexasphere_generator/bin/libhexasphere.macos.template_debug.arm64.dylib"
+macos.release.arm64 = "res://addons/hexasphere_generator/bin/libhexasphere.macos.template_release.arm64.dylib"

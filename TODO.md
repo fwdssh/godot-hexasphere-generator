@@ -1,5 +1,22 @@
 # Hexasphere Generator — TODO
 
+## Architecture audit fixes — 2026-10-23
+
+Completed the following audit fixes; verification covered Windows x86-64 debug/release native libraries on Godot 4.7.2 .NET. A1–A9 were reproduced with the actual plugin in Godot; B1–B2 are configuration/code-boundary findings, and B3 was reproduced with a deterministically scheduled disposal/query overlap. Keep tests, reports and benchmarks out of implementation commits.
+
+- [x] **A1 — Input eligibility and viewport isolation.** Prevent hidden, inactive or event-ineligible planets from blocking eligible planets. Scope arbitration, UV ownership and camera state to the appropriate viewport/world; include viewport/camera identity in the per-event cache. Verify overlapping planets, runtime visibility/interaction changes and independent SubViewports.
+- [x] **A2 — Closed UV projector input.** Introduce an explicit open/closed state so an unopened or unbuilt projector cannot consume wheel/right-button events or activate its camera. Make programmatically created controllers and packed scenes behave consistently; verify 3D camera controls before opening and after closing UV.
+- [x] **A3 — Shared projector ownership.** Allow only the current owner to synchronize selection or restore camera state. Acquire ownership and close the previous view before mutating/subscribing/showing the shared projector. Verify that selecting B's UV tile while A was selected preserves B's highlight, and that owner switching/removal does not hide or clear the new owner's view.
+- [x] **A4 — Authoritative runtime colors.** Keep cell data, the 3D palette and the UV color cache consistent after `SetTileColor` and `SetAllTileColors`, including reopening UV. Define and preserve partial-array behavior without zeroing untouched colors; do not cache input colors for unsupported custom cells that were not changed.
+- [x] **A5 — Scale-invariant triangle winding.** Replace the absolute-scale face orientation test with a centroid/normal sign test and handle degeneracy explicitly. Verify consistent outward native faces and correct rendered winding at radii 20, 1 and 0.1, including subdivision changes.
+- [x] **A6 — Scale-invariant border identity.** Stop deduplicating unrelated edges solely by midpoints snapped to a fixed 0.001 grid. Use topology-based identity or relative tolerances with endpoint verification; preserve shared/gapped ownership and chunking. Verify subdivision 1 at radius 0.0001 retains 30 lines/60 vertices.
+- [x] **A7 — Visual-controller loss during generation.** Detect removal/disposal of the visual controller while waiting for material/border readiness and transition to a defined failed/cancelled state instead of remaining `Generating` forever. Release pending resources, reject stale callbacks and support a subsequent generation with a valid controller.
+- [x] **A8 — World-space click positions.** Convert both 3D hit positions and UV tile centers to world space before emitting `TileClicked`. Verify translated, rotated and nonuniformly scaled planets against the public signal contract.
+- [x] **A9 — UV hover signal forwarding.** Emit the sphere's `TileHovered` when projector hover changes, consistently with 3D input. Define hover clearing on UV entry/exit and verify subscribers receive the same state as the sphere's hovered index.
+- [x] **B1 — Native library platform/variant packaging.** Resolve the advertised macOS support versus missing `.gdextension` mapping. Align mappings and actual build outputs, distinguish debug/release/architecture artifacts so builds do not overwrite each other, and document the supported/tested matrix without claiming unverified platforms or release exports.
+- [x] **B2 — Safe direct native input boundary.** Validate finite positive radius, supported subdivision bounds and hex-size inputs at the exposed native API as well as the managed wrapper. Ensure invalid direct C#/ClassDB calls cannot propagate an uncaught C++ exception across GDExtension or construct invalid geometry; preserve the normal node lifecycle's validation behavior.
+- [x] **B3 — Native wrapper disposal contract.** Synchronize disposal with pending/in-flight operations, or explicitly enforce a supported concurrency contract. Guard disposed methods with a clear disposed-object error, keep disposal idempotent and verify a waiting query cannot resume against a cleared native reference.
+
 ## Generation lifecycle
 
 - [x] Make generation controllable and expose its state: not started, generating, ready, failed, and cancelled. Provide generation/restart/cancellation entry points and lifecycle signals that can be used from C# and GDScript.
@@ -12,7 +29,7 @@
 
 ## Installation and release documentation
 
-- [ ] State the Godot .NET requirement explicitly, including when using the C# nodes from GDScript. Document supported/tested Godot versions, target .NET version, available native binaries, platform/architecture support, and native build instructions. Distinguish included binaries from platforms requiring a source build.
+- [x] State the Godot .NET requirement explicitly, including when using the C# nodes from GDScript. Document supported/tested Godot versions, target .NET version, available native binaries, platform/architecture support, and native build instructions. Distinguish included binaries from platforms requiring a source build.
 - [x] Document the existing custom-cell extension pattern (`CreateCellData`, `SetVisualController`, and `GetColor`) using the `sol_example` Earth implementation; clarify that the convenience color setters target `HexCellData`.
 
 ## Raster UV map mode

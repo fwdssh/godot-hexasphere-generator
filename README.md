@@ -17,7 +17,7 @@ The math core is written in **C++ (GDExtension)** for maximum performance, with 
 - **Click & hover** — `TileClicked` / `TileHovered` signals with raycast hit detection
 - **Custom tile data** — implement `ICellData` for biomes, heights, colors per tile
 - **UV projection** — detailed or raster 2D map with pan/zoom, tile selection and automatic switching for large grids
-- **Cross-platform** — Windows (pre-built binary included), Linux and macOS can be built from source
+- **Native platform mappings** — Windows x86-64 debug/release binaries included; Linux, macOS and Windows ARM64 require source builds and have not been verified here
 
 ## Installation
 
@@ -25,7 +25,10 @@ Use **Godot .NET**: the plugin's nodes are implemented in C#, including when cal
 
 1. Copy `addons/hexasphere_generator/` into your project's `addons/` folder.
 2. Enable the plugin in **Project → Project Settings → Plugins**.
-3. Pre-built `hexasphere.dll` for **Windows** is included in `addons/hexasphere_generator/bin/`. For Linux and macOS, build from source (see [Building the Native Library](#building-the-native-library)).
+3. Pre-built **Windows x86-64 debug and release** libraries are included in `addons/hexasphere_generator/bin/`; keep both libraries and `hexasphere.gdextension` together. Other mapped platforms/architectures require a source build (see [Building the Native Library](#building-the-native-library)).
+4. If using keyboard UV controls, configure the input actions listed under [Input Actions](#input-actions) in your project.
+
+The verified combination is Godot **4.7.2 .NET**, Godot.NET.Sdk **4.7.2**, a **.NET 9** target and Windows x86-64. The native descriptor requires Godot 4.7 or newer to match the generated bindings; that floor is not a claim that every other Godot/.NET/platform combination has been tested. Release-native library loading is checked separately from exported-game validation.
 
 ## Quick Start
 
@@ -234,6 +237,10 @@ Sphere surface uploads, border mesh uploads, material setup and color uploads st
 
 `CreateCellData` and `GenerateInBackground` still run in the background: avoid scene-tree access there. Custom loops can check the protected `GenerationCancellationToken`; `CurrentGenerationSettings` exposes the captured base settings. Snapshot any additional custom settings on the main thread before starting. `GenerateInBackground` overrides can call `base` or produce their own data and call `PublishGenerationResult(native, centers, cells)` with the supplied native instance. Do not write the legacy pending fields or schedule `FinalizePlanet` from a worker. `FinalizePlanet`, `OnShaderReady`, `InitShaderMaterial` and `CleanupResources` overrides should call `base`; completion is published after the full hooks return. Fully custom visuals may emit `ShaderReady` synchronously after initializing their resources; the node waits until finalization returns before publishing completion. Custom rendering resources should be released by overriding `ClearGenerated` and calling `base`.
 
+Losing or replacing the visual controller before completion fails the current request and releases its pending resources. A subsequent generation recreates a missing default controller through `SetVisualController`. Custom overrides must likewise supply a valid controller attached to the tree.
+
+Direct `NativeHexasphere.Generate` calls require a finite positive radius, subdivisions 1–3454 (the mesh's signed 32-bit vertex-count bound), and a finite hex size in 0.1–1. Invalid managed input throws an argument exception before entering native code. The native `generate` method returns `true` on success or `false` when input/construction is rejected, preserving the previous geometry and prepared arrays on rejection. The wrapper also accepts older binaries whose method returns nil. Disposal waits for an active operation; queued/later operations observe `ObjectDisposedException` after disposal. Extremely small or large inputs can still be rejected if their geometry cannot be represented by the native float coordinates.
+
 ## Signals
 
 `HexasphereNode` emits the following signals:
@@ -346,6 +353,8 @@ projector.RebuildMap()
 
 Programmatic selection changes highlights without emitting mouse-click signals. Existing `TileClicked`, `TileHovered`, and `TileDeselected` signals work in both render modes.
 
+Preparing a map or changing visibility alone does not enable input. `sphere.OpenUvProjector()` opens its linked map and coordinates viewport camera ownership; standalone projector callers can use `OpenProjection()` after preparation and `CloseProjection()` to close. `IsProjectionOpen` exposes this state. Only the active owner synchronizes a shared projector. Input arbitration and managed camera state are scoped to the planet's viewport; custom camera scripts should use `HexasphereInputRouter.IsUvProjectionOpenFor(GetViewport())` when more than one viewport exists. The global `IsUvProjectionOpen` remains available to callers that intentionally need to know whether any viewport has an open map.
+
 Builds are synchronous. On failure, `BuildMap2D` emits `ProjectionBuildFailed`, records the error/state, and invalidates partial caches for a subsequent retry. `PrepareUvProjector()` returns false when the planet/projector is unavailable or its build fails.
 
 Reopening an unchanged map reuses its mesh and raster IDs. Recoloring and highlight changes do not rasterize again. Changing only `MapSize` reuses raster IDs; changing resolution, topology, or calling `MarkDirty()` invalidates them. Pan, zoom, and selection are preserved on settings changes and reopening; a different native sphere or tile count resets the camera and highlight indices.
@@ -362,6 +371,8 @@ Use the [generation lifecycle checklist](docs/testing/generation-checklist.md) f
 ## Custom Cell Data
 
 The convenience setters `SetTileColor` and `SetAllTileColors` target `HexCellData`. For custom cell models, override `CreateCellData`, `SetVisualController`, and `GetColor`, as shown by Earth in `scenes/sol_example/`; the visual controller maps your data to colors.
+
+Bulk color updates may supply a shorter array: untouched cells retain their existing colors. The UV cache is derived from actual cell colors, including custom cells that the convenience setters do not modify. An open, owned projection refreshes its palette without rebuilding its geometry. Passing null to `SetAllTileColors` is rejected.
 
 Implement `ICellData` for custom per-tile data and override `GetColor` in a custom visual controller:
 
@@ -480,18 +491,24 @@ Key virtual methods in `PlanetBorderRenderer`:
 
 ### From Source
 
+Clone the full repository and initialize its pinned `godot-cpp` submodule before building. Copying only the addon does not include native sources. Requires Python 3, SCons, a working C++17 compiler and the target platform toolchain. Exception support is configured by `SConstruct` through godot-cpp's compiler-specific options.
+
 ```bash
+git submodule update --init --recursive
 cd native
-scons target=template_debug
+python -m SCons platform=windows arch=x86_64 target=template_debug -j4
+python -m SCons platform=windows arch=x86_64 target=template_release -j4
 ```
 
-The binary is output to `addons/hexasphere_generator/bin/`.
+The Windows outputs are `hexasphere.windows.template_debug.x86_64.dll` and `hexasphere.windows.template_release.x86_64.dll` in `addons/hexasphere_generator/bin/`. The descriptor selects the appropriate library for debug/editor or release use. Build variants have distinct filenames, so one target does not overwrite another. Use the explicit architecture in each command.
 
-| Platform | `platform=` |
-|---|---|
-| Windows | (default) |
-| Linux | `platform=linux` |
+| Platform / architecture | Build options | Library filename pattern | Included / verification |
+|---|---|---|---|
+| Windows x86-64 | `platform=windows arch=x86_64` | `hexasphere.windows.<target>.x86_64.dll` | Debug/release included; tested on Godot 4.7.2 .NET |
+| Windows ARM64 | `platform=windows arch=arm64` | `hexasphere.windows.<target>.arm64.dll` | Source build required; unverified |
+| Linux x86-64 / ARM64 | `platform=linux arch=x86_64` or `arch=arm64` | `libhexasphere.linux.<target>.<arch>.so` | Source build required; unverified |
+| macOS x86-64 / ARM64 | `platform=macos arch=x86_64` or `arch=arm64` | `libhexasphere.macos.<target>.<arch>.dylib` | Source build required; unverified |
 
-Requires a working C++17 compiler, Python 3, and SCons.
+Replace `<target>` with `template_debug` or `template_release`. Build both variants needed by the consuming project and keep their names aligned with `hexasphere.gdextension`. macOS mappings are for explicit single-architecture builds; no universal binary is supplied. Other architectures/platforms need their own build and descriptor entry. A successful native release build/load does not by itself verify a Godot export or other operating systems.
 
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-import os
-
+# The core reports invalid/degenerate geometry with C++ exceptions. Let godot-cpp
+# select the compiler's exception flags (including /EHsc on MSVC).
+ARGUMENTS["disable_exceptions"] = "false"
 env = SConscript("godot-cpp/SConstruct")
-env.Append(CCFLAGS=['-fexceptions'])
 
 sources = Glob("src/*.cpp")
 
 library = env.SharedLibrary(
-    target="../addons/hexasphere_generator/bin/hexasphere",
+    target="../addons/hexasphere_generator/bin/hexasphere" + env["suffix"] + env["SHLIBSUFFIX"],
     source=sources,
 )
 

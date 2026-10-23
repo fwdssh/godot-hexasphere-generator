@@ -16,7 +16,7 @@ public partial class FreeCamera3D : Camera3D
     public override void _Ready()
     {
         Input.MouseMode = Input.MouseModeEnum.Captured;
-        _wasUvOpen = HexasphereInputRouter.IsUvProjectionOpen;
+        _wasUvOpen = HexasphereInputRouter.IsUvProjectionOpenFor(GetViewport());
         
         Vector3 rot = Rotation;
         _pitch = rot.X;
@@ -25,7 +25,7 @@ public partial class FreeCamera3D : Camera3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (HexasphereInputRouter.IsUvProjectionOpen) return;
+        if (HexasphereInputRouter.IsUvProjectionOpenFor(GetViewport())) return;
 
         if (@event is InputEventKey keyEvent && keyEvent.Pressed && keyEvent.Keycode == Key.Escape)
         {
@@ -62,7 +62,7 @@ public partial class FreeCamera3D : Camera3D
 
     public override void _Process(double delta)
     {
-        bool uvOpen = HexasphereInputRouter.IsUvProjectionOpen;
+        bool uvOpen = HexasphereInputRouter.IsUvProjectionOpenFor(GetViewport());
         
         if (uvOpen && !_wasUvOpen)
         {

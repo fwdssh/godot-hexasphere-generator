@@ -76,14 +76,17 @@ std::vector<int32_t> Point::get_ordered_faces(const std::vector<Face>& faces) co
     return ordered;
 }
 
-bool Point::is_overlapping(const Point& a, const Point& b, float epsilon)
+bool Point::is_overlapping(const Point& a, const Point& b, double epsilon)
 {
-    return a._position.distance_to(b._position) <= epsilon;
+    return is_overlapping(a, b._position, epsilon);
 }
 
-bool Point::is_overlapping(const Point& a, const Vector3& b_pos, float epsilon)
+bool Point::is_overlapping(const Point& a, const Vector3& b_pos, double epsilon)
 {
-    return a._position.distance_to(b_pos) <= epsilon;
+    const double dx = double(a._position.x) - b_pos.x;
+    const double dy = double(a._position.y) - b_pos.y;
+    const double dz = double(a._position.z) - b_pos.z;
+    return dx * dx + dy * dy + dz * dz <= epsilon * epsilon;
 }
 
 std::string Point::to_string() const

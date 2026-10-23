@@ -7,6 +7,8 @@
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <exception>
 
 
 /// <summary>
@@ -40,10 +42,26 @@ void NativeHexasphere::_bind_methods()
 /// <summary>
 /// Generates the hexagonal sphere. Creates the internal Hexasphere instance with the given parameters.
 /// </summary>
-void NativeHexasphere::generate(float radius, int divisions, float hexSize)
+bool NativeHexasphere::generate(double radius, int64_t divisions, double hexSize)
 {
-    clear_mesh_preparation();
-    _hexasphere = std::make_unique<Hexasphere>(radius, divisions, hexSize);
+    if (!Hexasphere::are_valid_parameters(radius, divisions, hexSize))
+        return false;
+    // The core stores float coordinates. Reject values that cannot survive the
+    // conversion instead of accepting zero/infinite coordinates from a Variant.
+    const float core_radius = static_cast<float>(radius);
+    if (!std::isfinite(core_radius) || core_radius <= 0.0f)
+        return false;
+    try
+    {
+        auto replacement = std::make_unique<Hexasphere>(core_radius, static_cast<int>(divisions), static_cast<float>(hexSize));
+        clear_mesh_preparation();
+        _hexasphere = std::move(replacement);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 void NativeHexasphere::clear_mesh_preparation()
@@ -327,7 +345,9 @@ Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
                 Vector3 pos = boundary[order[v]].get_position();
                 int vi = globalVertexIndex++;
                 vertices[vi] = pos;
-                normals[vi] = pos.normalized();
+                // Scale before normalizing so real_t length-squared stays in range.
+                const real_t scale = std::max({std::abs(pos.x), std::abs(pos.y), std::abs(pos.z)});
+                normals[vi] = (pos / scale).normalized();
                 uv2s[vi] = tileUV;
                 if (vertex_indices) (*vertex_indices)[base + v] = vi;
             }

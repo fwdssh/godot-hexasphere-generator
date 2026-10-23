@@ -19,7 +19,7 @@ public partial class Camera3d : Camera3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!Current || HexasphereInputRouter.IsUvProjectionOpen)
+        if (!Current || HexasphereInputRouter.IsUvProjectionOpenFor(GetViewport()))
         {
             _isDragging = false;
             return;

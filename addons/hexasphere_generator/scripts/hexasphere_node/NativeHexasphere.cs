@@ -16,6 +16,7 @@ public class NativeHexasphere : IDisposable
     private readonly bool _supportsMeshPreparation;
     private readonly bool _supportsMeshChunks;
     internal long GeometryVersion => Interlocked.Read(ref _geometryVersion);
+    internal bool HasSharedTileEdges { get; private set; } = true;
 
     private static readonly StringName MethodGenerate = "generate";
     private static readonly StringName MethodGetTileCount = "get_tile_count";
@@ -51,11 +52,23 @@ public class NativeHexasphere : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _native?.Dispose();
-        _native = null;
+        _semaphore.Wait();
+        try
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _native?.Dispose();
+            _native = null;
+        }
+        finally { _semaphore.Release(); }
+        // Keep the semaphore alive: callers already waiting must acquire it and
+        // observe the disposed state instead of resuming against a freed object.
         GC.SuppressFinalize(this);
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(NativeHexasphere));
     }
 
     /// <summary>
@@ -69,7 +82,19 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
-            _native.Call(MethodGenerate, radius, divisions, hexSize);
+            ThrowIfDisposed();
+            if (!float.IsFinite(radius) || radius <= 0)
+                throw new ArgumentOutOfRangeException(nameof(radius), "Radius must be finite and positive.");
+            if (divisions < 1 || 10.0 * divisions * divisions + 2 > int.MaxValue / 18)
+                throw new ArgumentOutOfRangeException(nameof(divisions), "Divisions must be positive and fit the mesh's 32-bit vertex counts.");
+            if (!float.IsFinite(hexSize) || hexSize < 0.1f || hexSize > 1)
+                throw new ArgumentOutOfRangeException(nameof(hexSize), "Hex size must be finite and within 0.1..1.");
+            var result = _native.Call(MethodGenerate, radius, divisions, hexSize);
+            // Older extensions return nil; newer extensions explicitly reject
+            // failed construction without replacing the previous geometry.
+            if (result.VariantType == Variant.Type.Bool && !result.AsBool())
+                throw new InvalidOperationException("Native hexasphere generation rejected the parameters or could not construct the geometry.");
+            HasSharedTileEdges = hexSize == 1;
             Interlocked.Increment(ref _geometryVersion);
         }
         finally
@@ -84,6 +109,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (int)_native.Call(MethodGetTileCount);
         }
         finally
@@ -99,6 +125,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Vector3)_native.Call(MethodGetTileCenter, tileIdx);
         }
         finally
@@ -114,6 +141,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Vector3[])_native.Call(MethodGetTilePoints, tileIdx);
         }
         finally
@@ -129,6 +157,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (int[])_native.Call(MethodGetTileFaces, tileIdx);
         }
         finally
@@ -143,6 +172,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Dictionary)_native.Call(MethodGetBuildData);
         }
         finally
@@ -157,6 +187,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Dictionary)_native.Call(MethodGetBorderData);
         }
         finally
@@ -171,10 +202,11 @@ public class NativeHexasphere : IDisposable
     /// </summary>
     public virtual bool PrepareMesh()
     {
-        if (!_supportsMeshPreparation) return false;
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
+            if (!_supportsMeshPreparation) return false;
             _native.Call(MethodPrepareMesh);
             return true;
         }
@@ -184,9 +216,12 @@ public class NativeHexasphere : IDisposable
     /// <summary>Prepares bounded CPU surface arrays. Returns zero when unsupported.</summary>
     public virtual int PrepareMeshChunks(int tilesPerSurface)
     {
-        if (!_supportsMeshChunks) return 0;
         _semaphore.Wait();
-        try { return (int)_native.Call(MethodPrepareMeshChunks, tilesPerSurface); }
+        try
+        {
+            ThrowIfDisposed();
+            return _supportsMeshChunks ? (int)_native.Call(MethodPrepareMeshChunks, tilesPerSurface) : 0;
+        }
         finally { _semaphore.Release(); }
     }
 
@@ -196,6 +231,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             int remaining = (int)_native.Call(MethodAppendMeshChunk, mesh);
             if (remaining < 0) throw new InvalidOperationException("No valid prepared mesh chunk or target surface capacity.");
             return remaining;
@@ -209,6 +245,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Dictionary)_native.Call(MethodBuildMesh);
         }
         finally
@@ -223,6 +260,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Vector3[])_native.Call(MethodGetAllTileCenters);
         }
         finally
@@ -240,6 +278,7 @@ public class NativeHexasphere : IDisposable
         _semaphore.Wait();
         try
         {
+            ThrowIfDisposed();
             return (Dictionary)_native.Call(MethodGetAllTileNeighbors);
         }
         finally

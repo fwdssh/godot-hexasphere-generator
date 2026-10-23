@@ -2,6 +2,8 @@
 #include "point.h"
 #include "face.h"
 #include <godot_cpp/core/math.hpp>
+#include <cmath>
+#include <stdexcept>
 #include <unordered_set>
 
 Tile::Tile(int32_t centerIdx, float radius, float size, const std::vector<Face>& globalFaces, const std::vector<Point>& globalPoints)
@@ -35,8 +37,11 @@ void Tile::build_faces(const std::vector<int32_t>& icosahedron_faces, const std:
     for (int32_t faceIdx : icosahedron_faces)
     {
         Vector3 lerped = centerPos.lerp(globalFaces[faceIdx].get_center_position(globalPoints), _size);
-        float scale = _radius / lerped.length();
-        _boundaryPoints[_boundaryCount++] = Point(lerped * scale, localPtId++);
+        const double length = std::hypot(double(lerped.x), double(lerped.y), double(lerped.z));
+        if (!std::isfinite(length) || length == 0.0)
+            throw std::invalid_argument("Cannot project a degenerate tile boundary");
+        _boundaryPoints[_boundaryCount++] = Point(Vector3(lerped.x / length * _radius,
+            lerped.y / length * _radius, lerped.z / length * _radius), localPtId++);
     }
 
     int n = _boundaryCount;

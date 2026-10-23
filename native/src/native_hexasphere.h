@@ -44,12 +44,13 @@ public:
 
     /// <summary>
     /// Generates the hexagonal sphere geometry with the specified parameters.
-    /// Must be called before any other methods.
+    /// Returns false on invalid input or construction failure, preserving existing geometry.
+    /// Must succeed before geometry is available to the other methods.
     /// </summary>
     /// <param name="radius">Sphere radius in world units.</param>
     /// <param name="divisions">Icosahedron subdivision level (higher = more tiles).</param>
     /// <param name="hexSize">Relative size of hexagons (1.0 = default).</param>
-    void generate(float radius, int divisions, float hexSize);
+    bool generate(double radius, int64_t divisions, double hexSize);
 
     /// <summary>
     /// Returns the total number of tiles in the generated sphere.

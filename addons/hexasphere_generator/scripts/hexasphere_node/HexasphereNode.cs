@@ -98,6 +98,9 @@ public partial class HexasphereNode : Node3D
     protected Color[] _tileColors;
     private int _selectedTileIndex = -1;
     private int _hoveredTileIndex = -1;
+    private long _interactionRevision;
+    internal long InteractionRevision => _interactionRevision;
+    private bool _uvOpening;
     protected bool _planetReady = false;
     protected bool _shouldAutoGenerate = true;
 
@@ -147,10 +150,6 @@ public partial class HexasphereNode : Node3D
             var node = GetNodeOrNull(UvProjectorPath);
             UvProjector = node as HexasphereProjectorController;
 
-            if (UvProjector != null)
-            {
-                UvProjector.ProjectionClosed += OnProjectionClosed;
-            }
         }
 
         if (_shouldAutoGenerate)
@@ -165,21 +164,13 @@ public partial class HexasphereNode : Node3D
 
     private void ResetGeneratedPlanet()
     {
-        if (HexasphereInputRouter.IsUvProjectionOwner(this))
-            CloseUvProjectorFromRouter();
-        if (GodotObject.IsInstanceValid(UvProjector))
-            UvProjector.InvalidateSource(_hexasphere);
-        if (GodotObject.IsInstanceValid(VisualController))
-        {
-            VisualController.ShaderReady -= OnGenerationShaderReady;
-            VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
-            VisualController.ClearGenerated();
-        }
+        long revision = ++_interactionRevision;
+        bool hadHover = _hoveredTileIndex != -1;
+        var source = _hexasphere;
+        var pending = _pendingHexasphere;
         _planetReady = false;
         _selectedTileIndex = -1;
         _hoveredTileIndex = -1;
-        _hexasphere?.Dispose();
-        _pendingHexasphere?.Dispose();
         _hexasphere = null;
         _cellDatas = null;
         _tileColors = null;
@@ -188,6 +179,22 @@ public partial class HexasphereNode : Node3D
         _pendingHexasphere = null;
         _pendingCenters = null;
         _pendingCellDatas = null;
+        if (GodotObject.IsInstanceValid(VisualController))
+        {
+            VisualController.ShaderReady -= OnGenerationShaderReady;
+            VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
+            VisualController.ClearGenerated();
+        }
+        // Publish the reset before close/hover signals can start another generation.
+        if (HexasphereInputRouter.IsUvProjectionOwner(this))
+            CloseUvProjectorFromRouter();
+        if (GodotObject.IsInstanceValid(UvProjector))
+            UvProjector.InvalidateSource(source);
+        source?.Dispose();
+        pending?.Dispose();
+        if (hadHover && GodotObject.IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion()
+            && _interactionRevision == revision)
+            EmitSignal(SignalName.TileHovered, -1);
     }
 
     virtual protected void StartGeneration()
@@ -230,85 +237,139 @@ virtual protected void OnShaderReady()
     /// </summary>
     public bool PrepareUvProjector()
     {
-        if (UvProjector == null || !_planetReady || _hexasphere == null) return false;
-        UvProjector.BuildMap2D(_hexasphere, _tileColors, UvProjector.MapSize);
-        return UvProjector.IsProjectionReady();
+        if (!HasInteractionResources() || !GodotObject.IsInstanceValid(UvProjector)
+            || !UvProjector.IsInsideTree() || UvProjector.GetViewport() != GetViewport()) return false;
+        if (UvProjector.IsProjectionOpen && !UvProjector.IsOwnedBy(this)) return false;
+        var source = _hexasphere;
+        long revision = _interactionRevision;
+        UvProjector.BuildMap2D(source, _tileColors, UvProjector.MapSize);
+        return InteractionUnchanged(revision, source) && GodotObject.IsInstanceValid(UvProjector)
+            && UvProjector.IsInsideTree() && UvProjector.IsProjectionReady();
     }
 
-    /// <summary>
-    /// Opens the UV map projection view. Disables the 3D camera and shows the 2D UV editor.
-    /// </summary>
+    /// <summary>Opens the configured UV view, acquiring its viewport before changing the shared map.</summary>
     public virtual void OpenUvProjector()
-{
-    if (UvProjector == null || !_planetReady) return;
-
-    var camera3D = GetViewport().GetCamera3D();
-    if (camera3D == null)
     {
-        GD.PrintErr("[HexasphereNode] No active Camera3D in viewport to disable for UV mode.");
-        return;
+        if (_uvOpening || !HasInteractionResources() || !IsVisibleInTree() || !CanProcess()
+            || !GodotObject.IsInstanceValid(UvProjector) || !UvProjector.IsInsideTree()
+            || UvProjector.GetViewport() != GetViewport()) return;
+        if (HexasphereInputRouter.IsUvProjectionOwner(this) && UvProjector.IsOwnedBy(this))
+        {
+            SyncUvProjectorSelection();
+            return;
+        }
+
+        var source = _hexasphere;
+        long revision = _interactionRevision;
+        _uvOpening = true;
+        try
+        {
+            if (!HexasphereInputRouter.RequestUvProjection(this)) return;
+            // The previous owner's close callbacks may regenerate/free this node.
+            if (!InteractionUnchanged(revision, source)) return;
+            var camera = GetViewport().GetCamera3D();
+            if (camera == null || !PrepareUvProjector()) return;
+            if (!InteractionUnchanged(revision, source) || !HexasphereInputRouter.IsUvProjectionOwner(this)) return;
+            SubscribeUvSignals();
+            if (!UvProjector.OpenProjectionFor(this)) return;
+            // Hover starts empty when changing between the 3D and UV views.
+            bool hadHover = _hoveredTileIndex != -1;
+            _hoveredTileIndex = -1;
+            UvProjector.SetSelection(_selectedTileIndex, -1);
+            if (!InteractionUnchanged(revision, source) || !OwnsActiveUv()) return;
+            ApplyVisualSelection();
+            if (!InteractionUnchanged(revision, source) || !OwnsActiveUv()) return;
+            HexasphereInputRouter.EnterUvMode(camera);
+            if (hadHover) EmitSignal(SignalName.TileHovered, -1);
+        }
+        finally
+        {
+            _uvOpening = false;
+            if (GodotObject.IsInstanceValid(this) && HexasphereInputRouter.IsUvProjectionOwner(this)
+                && (!GodotObject.IsInstanceValid(UvProjector) || !UvProjector.IsOwnedBy(this)))
+            {
+                UnsubscribeUvSignals();
+                HexasphereInputRouter.OnUvProjectionClosed(this);
+            }
+        }
     }
 
-    if (!PrepareUvProjector()) return;
+    private bool HasInteractionResources() => GodotObject.IsInstanceValid(this) && IsInsideTree()
+        && !IsQueuedForDeletion() && _planetReady && _hexasphere != null;
+    private bool InteractionUnchanged(long revision, NativeHexasphere source) =>
+        HasInteractionResources() && revision == _interactionRevision && ReferenceEquals(source, _hexasphere);
+    private bool OwnsActiveUv() => HasInteractionResources() && HexasphereInputRouter.IsUvProjectionOwner(this)
+        && GodotObject.IsInstanceValid(UvProjector) && UvProjector.IsOwnedBy(this);
 
-    UvProjector.TileClicked += OnUvTileClicked;
-    UvProjector.TileDeselected += OnUvTileDeselected;
-    UvProjector.TileHovered += OnUvTileHovered;
-
-    UvProjector.SetSelection(_selectedTileIndex, _hoveredTileIndex);
-    UvProjector.Visible = true;
-    UvProjector.ProcessMode = ProcessModeEnum.Always;
-
-    HexasphereInputRouter.RequestUvProjection(this);
-    HexasphereInputRouter.EnterUvMode(camera3D);
-
-    // Make UV camera current
-    var camera = UvProjector.GetNodeOrNull<UvCamera2D>("Camera2D");
-    if (camera != null)
+    private void ApplyVisualSelection()
     {
-        camera.MakeCurrent();
+        if (GodotObject.IsInstanceValid(VisualController))
+            VisualController.SetSelection(
+                IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
+                IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
     }
-}
+
+    private void SubscribeUvSignals()
+    {
+        UnsubscribeUvSignals();
+        UvProjector.ProjectionClosed += OnProjectionClosed;
+        UvProjector.TileClicked += OnUvTileClicked;
+        UvProjector.TileDeselected += OnUvTileDeselected;
+        UvProjector.TileHovered += OnUvTileHovered;
+    }
+
+    private void UnsubscribeUvSignals()
+    {
+        if (!GodotObject.IsInstanceValid(UvProjector)) return;
+        UvProjector.ProjectionClosed -= OnProjectionClosed;
+        UvProjector.TileClicked -= OnUvTileClicked;
+        UvProjector.TileDeselected -= OnUvTileDeselected;
+        UvProjector.TileHovered -= OnUvTileHovered;
+    }
 
     private void OnUvTileClicked(int tileIndex)
     {
+        if (!OwnsActiveUv() || !CanProcess() || !IsClickEnabled || tileIndex < 0 || tileIndex >= TileCount) return;
+        var source = _hexasphere;
+        long revision = _interactionRevision;
         _selectedTileIndex = tileIndex;
-        EmitSignal(SignalName.TileClicked, tileIndex, GetTileCenter(tileIndex));
-        VisualController.SetSelection(
-            IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-            IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-
+        ApplyVisualSelection();
         HexasphereInputRouter.NotifySelectionChanged(this);
+        if (!InteractionUnchanged(revision, source) || !OwnsActiveUv() || _selectedTileIndex != tileIndex) return;
+        EmitSignal(SignalName.TileClicked, tileIndex, ToGlobal(GetTileCenter(tileIndex)));
     }
 
     private void OnUvTileDeselected()
     {
+        if (!OwnsActiveUv() || !CanProcess() || !IsClickEnabled) return;
         _selectedTileIndex = -1;
+        ApplyVisualSelection();
         EmitSignal(SignalName.TileDeselected);
-        VisualController.SetSelection(
-            IsClickVisualEnabled ? ClickColor : null, -1,
-            IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
     }
 
     private void OnUvTileHovered(int tileIndex)
     {
+        if (!OwnsActiveUv() || !CanProcess() || !IsHoverEnabled || tileIndex < -1 || tileIndex >= TileCount
+            || tileIndex == _hoveredTileIndex) return;
         _hoveredTileIndex = tileIndex;
-        VisualController.SetSelection(
-            IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-            IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
+        ApplyVisualSelection();
+        EmitSignal(SignalName.TileHovered, tileIndex);
     }
 
     private void OnProjectionClosed()
     {
-        if (UvProjector != null)
-        {
-            UvProjector.TileClicked -= OnUvTileClicked;
-            UvProjector.TileDeselected -= OnUvTileDeselected;
-            UvProjector.TileHovered -= OnUvTileHovered;
-        }
-
-        HexasphereInputRouter.ExitUvMode();
+        if (!HexasphereInputRouter.IsUvProjectionOwner(this)) return;
+        UnsubscribeUvSignals();
         HexasphereInputRouter.OnUvProjectionClosed(this);
+        ClearHover();
+    }
+
+    private void ClearHover()
+    {
+        if (_hoveredTileIndex == -1) return;
+        _hoveredTileIndex = -1;
+        ApplyVisualSelection();
+        EmitSignal(SignalName.TileHovered, -1);
     }
 
     private bool TryRaycastToTile(out Vector3 hitPosition, out int tileIndex)
@@ -351,80 +412,78 @@ virtual protected void OnShaderReady()
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!_planetReady || HexasphereInputRouter.IsUvProjectionOpen) return;
-        // Global key toggle — requires cursor over sphere
-        if (@event is InputEventKey { Pressed: true } && Input.IsActionJustPressed("ui_toggle_uv_map") && IsClickEnabled)
+        if (!HasInteractionResources() || HexasphereInputRouter.IsUvProjectionOpenFor(GetViewport())) return;
+        var viewport = GetViewport();
+        if (!HexasphereInputRouter.IsEligible(this, @event, viewport))
         {
-            if (TryRaycastToTile(out _, out int idx) && idx >= 0)
-            {
-                if (_planetReady && UvProjector != null) OpenUvProjector();
-            }
+            if (@event is InputEventMouseMotion) ClearHover();
+            return;
+        }
+        var source = _hexasphere;
+        long revision = _interactionRevision;
+
+        if (@event is InputEventKey { Pressed: true, Echo: false }
+            && @event.IsActionPressed("ui_toggle_uv_map"))
+        {
+            if (HexasphereInputRouter.FindSphereUnderCursor(@event, viewport.GetMousePosition(), viewport, out _) == this)
+                OpenUvProjector();
             return;
         }
 
-        // For mouse events, use router to determine which sphere wins
         if (@event is InputEventMouse)
         {
-            var viewport = GetViewport();
-            Vector2 mousePos = viewport.GetMousePosition();
-
-            var winner = HexasphereInputRouter.FindSphereUnderCursor(@event, mousePos, GetViewport(), out _);
+            var winner = HexasphereInputRouter.FindSphereUnderCursor(@event, viewport.GetMousePosition(), viewport, out _);
+            if (!InteractionUnchanged(revision, source)) return;
             if (winner != this)
             {
-                // We are not the winner — clear hover if we had one
-                if (_hoveredTileIndex != -1)
-                {
-                    _hoveredTileIndex = -1;
-                    EmitSignal(SignalName.TileHovered, -1);
-                    VisualController.SetSelection(
-                        IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-                        IsHoverVisualEnabled ? HoverColor : null, -1);
-                }
+                if (@event is InputEventMouseMotion) ClearHover();
                 return;
             }
         }
 
-        // Left click — select/deselect tile
-        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } && IsClickEnabled)
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
         {
             if (TryRaycastToTile(out var hitPos, out int idx) && idx >= 0)
             {
                 _selectedTileIndex = idx;
-                EmitSignal(SignalName.TileClicked, idx, hitPos);
-                VisualController.SetSelection(
-                    IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-                
-                // Clear selection from all other spheres
+                ApplyVisualSelection();
+                SyncUvProjectorSelection();
+                viewport.SetInputAsHandled();
                 HexasphereInputRouter.NotifySelectionChanged(this);
+                if (!InteractionUnchanged(revision, source) || _selectedTileIndex != idx) return;
+                EmitSignal(SignalName.TileClicked, idx, ToGlobal(hitPos));
             }
             else
             {
                 _selectedTileIndex = -1;
+                ApplyVisualSelection();
+                SyncUvProjectorSelection();
+                viewport.SetInputAsHandled();
                 EmitSignal(SignalName.TileDeselected);
-                VisualController.SetSelection(
-                    IsClickVisualEnabled ? ClickColor : null, -1,
-                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
-            SyncUvProjectorSelection();
-            GetViewport().SetInputAsHandled();
+            return;
         }
 
-        if (@event is InputEventMouseMotion && IsHoverEnabled)
+        if (@event is InputEventMouseMotion)
         {
-            int newHover = -1;
-            if (TryRaycastToTile(out _, out int idx))
-            {
-                newHover = idx;
-            }
+            int newHover = TryRaycastToTile(out _, out int idx) ? idx : -1;
             if (newHover != _hoveredTileIndex)
             {
                 _hoveredTileIndex = newHover;
+                ApplyVisualSelection();
                 EmitSignal(SignalName.TileHovered, newHover);
-                VisualController.SetSelection(
-                    IsClickVisualEnabled ? ClickColor : null, _selectedTileIndex,
-                    IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
             }
+        }
+    }
+
+    public override void _Notification(int what)
+    {
+        if (!IsInsideTree()) return;
+        if ((what == NotificationVisibilityChanged && !IsVisibleInTree())
+            || ((what == NotificationPaused || what == NotificationDisabled) && !CanProcess()))
+        {
+            if (HexasphereInputRouter.IsUvProjectionOwner(this)) CloseUvProjectorFromRouter();
+            else ClearHover();
         }
     }
 
@@ -432,10 +491,7 @@ virtual protected void OnShaderReady()
     {
         ShutdownGenerationLifecycle();
         HexasphereInputRouter.Unregister(this);
-        if (GodotObject.IsInstanceValid(UvProjector))
-        {
-            UvProjector.ProjectionClosed -= OnProjectionClosed;
-        }
+        UnsubscribeUvSignals();
         CleanupResources();
     }
 
@@ -593,21 +649,17 @@ virtual protected void OnShaderReady()
     /// </summary>
     public virtual void ClearSelection()
     {
-        if (_selectedTileIndex != -1)
-        {
-            _selectedTileIndex = -1;
-            EmitSignal(SignalName.TileDeselected);
-            VisualController.SetSelection(
-                IsClickVisualEnabled ? ClickColor : null, -1,
-                IsHoverVisualEnabled ? HoverColor : null, _hoveredTileIndex);
-            SyncUvProjectorSelection();
-        }
+        if (_selectedTileIndex == -1) return;
+        _selectedTileIndex = -1;
+        ApplyVisualSelection();
+        SyncUvProjectorSelection();
+        EmitSignal(SignalName.TileDeselected);
     }
 
     private void SyncUvProjectorSelection()
     {
-        if (UvProjector != null && UvProjector.Visible)
-            UvProjector.SetSelection(_selectedTileIndex, -1);
+        if (OwnsActiveUv())
+            UvProjector.SetSelection(_selectedTileIndex, _hoveredTileIndex);
     }
 
     /// <summary>Returns the currently selected tile index, or -1 if none selected.</summary>
@@ -621,32 +673,40 @@ virtual protected void OnShaderReady()
     public void SetTileColor(int tileIndex, Color color)
     {
         if (_cellDatas == null || tileIndex < 0 || tileIndex >= _cellDatas.Length) return;
-        if (_cellDatas[tileIndex] is HexCellData hex)
-        {
-            hex.color = color;
-            VisualController.DrawColors(_cellDatas);
-        }
+        if (_cellDatas[tileIndex] is not HexCellData hex) return;
+        hex.color = color;
+        RefreshTileColors();
     }
 
-    /// <summary>
-    /// Sets the color of every tile at once. Also rebuilds the cached color array for the UV projector.
-    /// </summary>
-    /// <param name="colors">Array of colors indexed by tile index.</param>
+    /// <summary>Updates supported cells in the supplied prefix; the remaining cells keep their colors.</summary>
     public void SetAllTileColors(Color[] colors)
     {
+        if (colors == null) throw new System.ArgumentNullException(nameof(colors));
         if (_cellDatas == null) return;
         int count = Mathf.Min(colors.Length, _cellDatas.Length);
         for (int i = 0; i < count; i++)
-        {
             if (_cellDatas[i] is HexCellData hex)
                 hex.color = colors[i];
+        RefreshTileColors();
+    }
+
+    private void RefreshTileColors()
+    {
+        if (!GodotObject.IsInstanceValid(VisualController) || _cellDatas == null) return;
+        var cells = _cellDatas;
+        var source = _hexasphere;
+        long revision = _interactionRevision;
+        var colors = new Color[cells.Length];
+        for (int i = 0; i < colors.Length; i++)
+        {
+            colors[i] = VisualController.GetColor(cells[i]);
+            if (!GodotObject.IsInstanceValid(this) || revision != _interactionRevision
+                || !ReferenceEquals(cells, _cellDatas)) return;
         }
-        VisualController.DrawColors(_cellDatas);
-        
-        // Update _tileColors for UV projector (create new array to trigger rebuild)
-        _tileColors = new Color[_cellDatas.Length];
-        for (int i = 0; i < count; i++)
-            _tileColors[i] = colors[i];
+        _tileColors = colors;
+        VisualController.DrawColors(cells);
+        if (InteractionUnchanged(revision, source) && ReferenceEquals(_tileColors, colors) && OwnsActiveUv())
+            UvProjector.UpdateColors(source, colors);
     }
 
     /// <summary>
@@ -688,13 +748,18 @@ virtual protected void OnShaderReady()
     /// </summary>
     public virtual void CloseUvProjectorFromRouter()
     {
-        if (UvProjector != null && UvProjector.Visible)
-        {
-            UvProjector.Visible = false;
-            UvProjector.ProcessMode = ProcessModeEnum.Disabled;
-            UvProjector.EmitSignal(HexasphereProjectorController.SignalName.ProjectionClosed);
-        }
+        if (!HexasphereInputRouter.IsUvProjectionOwner(this)) return;
+        long revision = _interactionRevision;
+        bool hadHover = _hoveredTileIndex != -1;
+        _hoveredTileIndex = -1;
+        ApplyVisualSelection();
+        UnsubscribeUvSignals();
+        HexasphereInputRouter.OnUvProjectionClosed(this);
+        // Detach and restore the camera before emitting projector close callbacks.
+        if (GodotObject.IsInstanceValid(UvProjector) && UvProjector.IsOwnedBy(this))
+            UvProjector.CloseProjection();
+        if (hadHover && GodotObject.IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion()
+            && revision == _interactionRevision && !HexasphereInputRouter.IsUvProjectionOwner(this))
+            EmitSignal(SignalName.TileHovered, -1);
     }
-
-
 }

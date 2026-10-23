@@ -22,6 +22,7 @@ public class PlanetBorderRenderer : System.IDisposable
     internal sealed record PreparedSurface(Vector3[] Positions, Vector2[] TilePairs);
     internal sealed record PreparedGeometry(PreparedSurface[] Surfaces,
         NativeHexasphere Source, long SourceVersion);
+    private readonly record struct EdgeCandidate(Vector3 Start, Vector3 End, int VertexIndex, int Next);
 
     internal bool IsUploading => _uploadSurfaces != null;
     internal bool HasSingleUploadSurface => _uploadSurfaces?.Length == 1;
@@ -136,8 +137,20 @@ public class PlanetBorderRenderer : System.IDisposable
         int tileCount = hexasphere.GetTileCount();
         var vertPositions = new List<Vector3>();
         List<Vector2> uv2 = new List<Vector2>();
-        var edgeFirstOwner = new Dictionary<Vector3, int>();
-        var edgeVertexIndex = new Dictionary<Vector3, int>();
+        var edgeBuckets = new Dictionary<(long, long, long), int>();
+        var edges = new List<EdgeCandidate>();
+        // Normalize in double precision so tiny/large radii use the same buckets
+        // without underflowing squared lengths or overflowing endpoint sums.
+        double scale = 0;
+        for (int i = 0; i < positions.Length; i++)
+        {
+            if ((i & 8191) == 0) token.ThrowIfCancellationRequested();
+            var p = positions[i];
+            scale = System.Math.Max(scale, System.Math.Max(System.Math.Abs((double)p.X),
+                System.Math.Max(System.Math.Abs((double)p.Y), System.Math.Abs((double)p.Z))));
+        }
+        double inverseScale = scale > 0 ? 1 / scale : 1;
+        bool shareEdges = hexasphere.HasSharedTileEdges;
 
         int idx = 0;
         for (int i = 0; i < tileCount; i++)
@@ -148,12 +161,49 @@ public class PlanetBorderRenderer : System.IDisposable
             {
                 Vector3 p1 = positions[idx + j];
                 Vector3 p2 = positions[idx + j + 1];
-                Vector3 mid = (p1 + p2) * 0.5f;
-                var snappedMid = SnapToGrid(mid, 0.001f);
-                if (!edgeFirstOwner.TryGetValue(snappedMid, out int firstOwner))
+                double midpointX = ((double)p1.X + p2.X) * 0.5 * inverseScale / 0.00001;
+                double midpointY = ((double)p1.Y + p2.Y) * 0.5 * inverseScale / 0.00001;
+                double midpointZ = ((double)p1.Z + p2.Z) * 0.5 * inverseScale / 0.00001;
+                var bucket = ((long)System.Math.Floor(midpointX),
+                    (long)System.Math.Floor(midpointY), (long)System.Math.Floor(midpointZ));
+                int vertexIndex = -1;
+                // A midpoint only locates candidates. Verify both endpoints in
+                // either direction, including neighboring buckets at grid seams.
+                // Gapped tiles own independent lines even for sub-tolerance gaps.
+                // Matching endpoints bound midpoint drift to 0.1 bucket widths.
+                // Visit a neighbor only near that seam, avoiding 27 lookups per edge.
+                const double bucketDrift = 0.100001;
+                long minX = (long)System.Math.Floor(midpointX - bucketDrift);
+                long maxX = (long)System.Math.Floor(midpointX + bucketDrift);
+                long minY = (long)System.Math.Floor(midpointY - bucketDrift);
+                long maxY = (long)System.Math.Floor(midpointY + bucketDrift);
+                long minZ = (long)System.Math.Floor(midpointZ - bucketDrift);
+                long maxZ = (long)System.Math.Floor(midpointZ + bucketDrift);
+                for (long x = minX; shareEdges && x <= maxX && vertexIndex < 0; x++)
+                for (long y = minY; y <= maxY && vertexIndex < 0; y++)
+                for (long z = minZ; z <= maxZ && vertexIndex < 0; z++)
                 {
-                    edgeFirstOwner[snappedMid] = i;
-                    edgeVertexIndex[snappedMid] = vertPositions.Count;
+                    if (!edgeBuckets.TryGetValue((x, y, z), out int candidate)) continue;
+                    while (candidate >= 0)
+                    {
+                        var edge = edges[candidate];
+                        if ((SameEndpoint(p1, edge.Start, inverseScale) && SameEndpoint(p2, edge.End, inverseScale))
+                            || (SameEndpoint(p1, edge.End, inverseScale) && SameEndpoint(p2, edge.Start, inverseScale)))
+                        {
+                            vertexIndex = edge.VertexIndex;
+                            break;
+                        }
+                        candidate = edge.Next;
+                    }
+                }
+                if (vertexIndex < 0)
+                {
+                    if (shareEdges)
+                    {
+                        int next = edgeBuckets.TryGetValue(bucket, out int head) ? head : -1;
+                        edgeBuckets[bucket] = edges.Count;
+                        edges.Add(new EdgeCandidate(p1, p2, vertPositions.Count, next));
+                    }
                     vertPositions.Add(p1 * 1.0001f);
                     vertPositions.Add(p2 * 1.0001f);
                     uv2.Add(new Vector2(i, -1));
@@ -161,9 +211,9 @@ public class PlanetBorderRenderer : System.IDisposable
                 }
                 else
                 {
-                    int vertIdx = edgeVertexIndex[snappedMid];
-                    uv2[vertIdx] = new Vector2(firstOwner, i);
-                    uv2[vertIdx + 1] = new Vector2(firstOwner, i);
+                    var owners = new Vector2(uv2[vertexIndex].X, i);
+                    uv2[vertexIndex] = owners;
+                    uv2[vertexIndex + 1] = owners;
                 }
             }
             idx += count;
@@ -222,12 +272,8 @@ public class PlanetBorderRenderer : System.IDisposable
         _mesh?.Dispose(); _mesh = null;
     }
 
-    private static Vector3 SnapToGrid(Vector3 v, float gridSize)
-    {
-        return new Vector3(
-            Mathf.Round(v.X / gridSize) * gridSize,
-            Mathf.Round(v.Y / gridSize) * gridSize,
-            Mathf.Round(v.Z / gridSize) * gridSize
-        );
-    }
+    private static bool SameEndpoint(Vector3 a, Vector3 b, double inverseScale) =>
+        System.Math.Abs((double)a.X - b.X) * inverseScale <= 0.000001
+        && System.Math.Abs((double)a.Y - b.Y) * inverseScale <= 0.000001
+        && System.Math.Abs((double)a.Z - b.Z) * inverseScale <= 0.000001;
 }

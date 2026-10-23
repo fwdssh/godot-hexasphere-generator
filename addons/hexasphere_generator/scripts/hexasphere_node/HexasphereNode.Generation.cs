@@ -59,6 +59,12 @@ public partial class HexasphereNode
         public bool Published;
         public bool Finalizing;
         public bool ShaderReadyPending;
+        public bool WaitingForVisuals;
+        public HexasphereVisualController Controller;
+        public HexasphereVisualController.ShaderReadyEventHandler ReadyHandler;
+        public HexasphereVisualController.ShaderInitializationFailedEventHandler FailedHandler;
+        public Action ControllerExitingHandler;
+        public bool ControllerExited;
         public NativeHexasphere Native;
         public Vector3[] Centers;
         public ICellData[] Cells;
@@ -137,11 +143,6 @@ public partial class HexasphereNode
         {
             InitializeGenerationLifecycle();
             if (!GodotObject.IsInstanceValid(VisualController)) SetVisualController();
-            if (GodotObject.IsInstanceValid(UvProjector))
-            {
-                UvProjector.ProjectionClosed -= OnProjectionClosed;
-                UvProjector.ProjectionClosed += OnProjectionClosed;
-            }
         }
     }
 
@@ -182,6 +183,7 @@ public partial class HexasphereNode
             _activeGeneration = null;
             if (request != null)
             {
+                DetachGenerationVisualSignals(request);
                 request.Cancel();
                 // Only published native data belongs to the main thread.
                 // Running workers dispose their own native object after returning.
@@ -222,6 +224,17 @@ public partial class HexasphereNode
         GenerationRequest request;
         try
         {
+            if (!IsUsableVisualController(VisualController))
+            {
+                // A queued old child still occupies the default controller name.
+                // Detaching it allows the normal extension hook to create a replacement.
+                if (GodotObject.IsInstanceValid(VisualController) && VisualController.IsQueuedForDeletion()
+                    && VisualController.GetParent() == this)
+                    RemoveChild(VisualController);
+                SetVisualController();
+            }
+            if (!IsUsableVisualController(VisualController))
+                throw new InvalidOperationException("Supply a visual controller attached to the scene tree before generating.");
             var settings = new HexasphereGenerationSettings(this);
             if (!float.IsFinite(settings.Radius) || settings.Radius <= 0)
                 throw new ArgumentOutOfRangeException(nameof(PlanetRadius), "PlanetRadius must be finite and positive.");
@@ -235,7 +248,7 @@ public partial class HexasphereNode
             if (settings.ColorsShader == null || (settings.Borders && settings.BordersShader == null))
                 throw new InvalidOperationException("Supply the color shader and, when borders are enabled, the border shader.");
             lock (_generationLock)
-                _activeGeneration = request = new GenerationRequest(++_generationSerial, settings);
+                _activeGeneration = request = new GenerationRequest(++_generationSerial, settings) { Controller = VisualController };
         }
         catch (Exception error) { FailGeneration(null, error); return; }
 
@@ -362,6 +375,13 @@ public partial class HexasphereNode
             catch (Exception error) { FailGeneration(request, error); }
         }
         var active = _activeGeneration;
+        if (IsCurrentGeneration(active) && (active.WaitingForVisuals || active.PreparedColors != null)
+            && (active.ControllerExited || !IsUsableVisualController(active.Controller)
+                || !ReferenceEquals(active.Controller, VisualController)))
+        {
+            FailGeneration(active, new InvalidOperationException("The visual controller was removed during visual initialization."));
+            return;
+        }
         if (IsCurrentGeneration(active) && active.PreparedColors != null)
         {
             try { AdvanceGenerationColors(active); }
@@ -397,7 +417,7 @@ public partial class HexasphereNode
             request.UploadMesh?.Dispose(); request.UploadMesh = null;
             request.UploadSource = null;
         }
-        if (request.ShaderReadyPending && IsCurrentGeneration(request)) OnGenerationShaderReady();
+        if (request.ShaderReadyPending && IsCurrentGeneration(request)) OnGenerationShaderReady(request);
     }
 
     private void AdvanceMeshUpload(GenerationRequest request)
@@ -434,7 +454,7 @@ public partial class HexasphereNode
         _pendingHexasphere = null;
         _pendingCenters = null;
         _pendingCellDatas = null;
-        if (!GodotObject.IsInstanceValid(VisualController))
+        if (!IsUsableVisualController(request.Controller) || !ReferenceEquals(request.Controller, VisualController))
             throw new InvalidOperationException("The visual controller was removed during generation.");
         ArrayMesh mesh;
         if (request.UploadMesh != null && ReferenceEquals(request.UploadSource, _hexasphere)
@@ -459,8 +479,19 @@ public partial class HexasphereNode
             if (!ReportGenerationStage(request, HexasphereGenerationStage.PreparingVisuals)) { mesh.Dispose(); return; }
             var settings = request.Settings;
             VisualController.SetNativeHexasphere(_hexasphere);
-            VisualController.ShaderReady += OnGenerationShaderReady;
-            VisualController.ShaderInitializationFailed += OnGenerationShaderFailed;
+            request.WaitingForVisuals = true;
+            request.ReadyHandler = () => OnGenerationShaderReady(request);
+            request.FailedHandler = error =>
+            {
+                if (IsCurrentGeneration(request) && ReferenceEquals(request.Controller, VisualController))
+                    FailGeneration(request, new InvalidOperationException(error));
+            };
+            // Observe exit here, then fail from the parent's next process frame.
+            // The whole planet may be exiting too; its normal shutdown owns that cancellation.
+            request.ControllerExitingHandler = () => request.ControllerExited = true;
+            request.Controller.ShaderReady += request.ReadyHandler;
+            request.Controller.ShaderInitializationFailed += request.FailedHandler;
+            request.Controller.TreeExiting += request.ControllerExitingHandler;
             VisualController.SetPreparedBorders(request.Borders);
             request.Borders = null;
             VisualController.SetUploadBudget(settings.MeshUploadBudgetMilliseconds);
@@ -470,15 +501,22 @@ public partial class HexasphereNode
         catch { mesh.Dispose(); throw; }
     }
 
-    private void OnGenerationShaderReady()
+    // Retained for existing cleanup hooks; active subscriptions capture their request.
+    private void OnGenerationShaderReady() => OnGenerationShaderReady(_activeGeneration);
+
+    private void OnGenerationShaderReady(GenerationRequest request)
     {
-        var request = _activeGeneration;
-        if (!IsCurrentGeneration(request) || !IsGenerating()) return;
+        if (!IsCurrentGeneration(request) || !IsGenerating() || !request.WaitingForVisuals
+            || !ReferenceEquals(request.Controller, VisualController)) return;
+        if (request.ControllerExited || !IsUsableVisualController(request.Controller))
+        {
+            FailGeneration(request, new InvalidOperationException("The visual controller was removed during visual initialization."));
+            return;
+        }
         // Custom controllers may emit synchronously from ApplyGenerated. Finish
         // only after the complete finalization hook has returned successfully.
         if (request.Finalizing) { request.ShaderReadyPending = true; return; }
-        VisualController.ShaderReady -= OnGenerationShaderReady;
-        VisualController.ShaderInitializationFailed -= OnGenerationShaderFailed;
+        DetachGenerationVisualSignals(request, keepExitHandler: true);
         try
         {
             // Preserve synchronous base-call semantics inside custom ready/draw
@@ -528,10 +566,32 @@ public partial class HexasphereNode
     private void FinishGenerationVisuals(GenerationRequest request)
     {
         OnShaderReady();
-        if (IsCurrentGeneration(request)) CompleteGenerationRequest();
+        if (!IsCurrentGeneration(request)) return;
+        if (request.ControllerExited || !IsUsableVisualController(request.Controller)
+            || !ReferenceEquals(request.Controller, VisualController))
+            throw new InvalidOperationException("The visual controller was removed during color preparation.");
+        CompleteGenerationRequest();
     }
 
     private void OnGenerationShaderFailed(string error) => FailGeneration(_activeGeneration, new InvalidOperationException(error));
+
+    private static bool IsUsableVisualController(HexasphereVisualController controller) =>
+        GodotObject.IsInstanceValid(controller) && controller.IsInsideTree() && !controller.IsQueuedForDeletion();
+
+    private static void DetachGenerationVisualSignals(GenerationRequest request, bool keepExitHandler = false)
+    {
+        request.WaitingForVisuals = false;
+        if (GodotObject.IsInstanceValid(request.Controller))
+        {
+            if (request.ReadyHandler != null) request.Controller.ShaderReady -= request.ReadyHandler;
+            if (request.FailedHandler != null) request.Controller.ShaderInitializationFailed -= request.FailedHandler;
+            if (!keepExitHandler && request.ControllerExitingHandler != null)
+                request.Controller.TreeExiting -= request.ControllerExitingHandler;
+        }
+        request.ReadyHandler = null;
+        request.FailedHandler = null;
+        if (!keepExitHandler) request.ControllerExitingHandler = null;
+    }
 
     private void PrepareGenerationColors()
     {
@@ -561,6 +621,10 @@ public partial class HexasphereNode
         if (_tileColors == null)
             throw new InvalidOperationException("OnShaderReady overrides must call base or prepare the tile color cache.");
         if (!ReportGenerationStage(request, HexasphereGenerationStage.Ready)) return;
+        if (request.ControllerExited || !IsUsableVisualController(request.Controller)
+            || !ReferenceEquals(request.Controller, VisualController))
+            throw new InvalidOperationException("The visual controller was removed before generation completed.");
+        DetachGenerationVisualSignals(request);
         _planetReady = true;
         SetGenerationState(HexasphereGenerationState.Ready);
         if (!IsCurrentGeneration(request)) return;

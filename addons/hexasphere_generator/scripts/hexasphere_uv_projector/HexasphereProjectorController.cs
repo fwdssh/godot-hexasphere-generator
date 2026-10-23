@@ -76,6 +76,17 @@ public partial class HexasphereProjectorController : Node2D
     private int _hoveredTile = -1;
     private UvCamera2D _camera2D;
     private bool _meshDirty = true;
+    private bool _projectionOpen;
+    private HexasphereNode _projectionOwner;
+    private long _projectionRevision;
+
+    /// <summary>True only after an explicit open of a ready map.</summary>
+    public bool IsProjectionOpen => _projectionOpen;
+    internal bool CanReceiveInput => _projectionOpen && IsInsideTree() && !IsQueuedForDeletion()
+        && IsVisibleInTree() && CanProcess() && IsProjectionReady()
+        && (_projectionOwner == null || (GodotObject.IsInstanceValid(_projectionOwner)
+            && _projectionOwner.IsReady && _projectionOwner.IsVisibleInTree() && _projectionOwner.CanProcess()
+            && !_projectionOwner.IsQueuedForDeletion() && HexasphereInputRouter.IsUvProjectionOwner(_projectionOwner)));
     private NativeHexasphere _cachedHexasphere;
     private Vector2 _cachedMapSize;
     private Vector3[] _cachedVertices;
@@ -130,15 +141,69 @@ public partial class HexasphereProjectorController : Node2D
     
     public override void _Notification(int what)
     {
-        if (what == NotificationVisibilityChanged && Visible)
-        {
-            var camera = _camera2D;
-            if (camera != null)
-            {
-                camera.MakeCurrent();
+        if (!_projectionOpen || !IsInsideTree()) return;
+        if ((what == NotificationVisibilityChanged && !IsVisibleInTree())
+            || ((what == NotificationPaused || what == NotificationDisabled) && !CanProcess()))
+            CloseProjection();
+    }
 
-            }
+    /// <summary>Opens a prepared standalone map. Preparing or showing a map alone never enables input.</summary>
+    public bool OpenProjection() => OpenProjectionFor(null);
+
+    internal bool OpenProjectionFor(HexasphereNode owner)
+    {
+        if (!IsInsideTree() || IsQueuedForDeletion() || !IsProjectionReady()) return false;
+        if (owner != null && !HexasphereInputRouter.IsUvProjectionOwner(owner)) return false;
+        if (_projectionOpen && _projectionOwner != owner) return false;
+        _projectionOwner = owner;
+        _projectionOpen = true;
+        long revision = ++_projectionRevision;
+        Visible = true;
+        if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || IsQueuedForDeletion()
+            || revision != _projectionRevision || !_projectionOpen) return false;
+        ProcessMode = ProcessModeEnum.Inherit;
+        if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || IsQueuedForDeletion()
+            || revision != _projectionRevision || !_projectionOpen) return false;
+        if (GodotObject.IsInstanceValid(_camera2D))
+        {
+            _camera2D.Enabled = true;
+            _camera2D.MakeCurrent();
         }
+        return true;
+    }
+
+    /// <summary>Closes this view and releases input/camera control. Repeated closes are harmless.</summary>
+    public void CloseProjection()
+    {
+        if (!_projectionOpen) return;
+        _projectionOpen = false;
+        _projectionOwner = null;
+        long revision = ++_projectionRevision;
+        _hoveredTile = -1;
+        UpdateShaderSelection();
+        if (GodotObject.IsInstanceValid(_camera2D))
+        {
+            _camera2D.ResetDragging();
+            _camera2D.Enabled = false;
+        }
+        Visible = false;
+        if (!GodotObject.IsInstanceValid(this) || revision != _projectionRevision) return;
+        ProcessMode = ProcessModeEnum.Disabled;
+        if (!GodotObject.IsInstanceValid(this) || revision != _projectionRevision) return;
+        EmitSignal(SignalName.ProjectionClosed);
+    }
+
+    internal bool IsOwnedBy(HexasphereNode sphere) => _projectionOwner == sphere && _projectionOpen;
+
+    /// <summary>Refreshes only the color palette of the currently prepared source.</summary>
+    internal bool UpdateColors(NativeHexasphere source, Color[] colors)
+    {
+        if (!IsProjectionReady() || _hexasphere != source) return false;
+        ValidateColors(colors, _cachedTileCount);
+        if (colors == null) throw new System.ArgumentNullException(nameof(colors));
+        WriteColorsToImage(colors);
+        _lastColors = colors;
+        return true;
     }
 
     private struct HitTri
@@ -254,7 +319,9 @@ public partial class HexasphereProjectorController : Node2D
         BuildState = UvProjectionBuildState.Ready;
         if (previousMode != mode)
             EmitSignal(SignalName.ProjectionModeChanged, (int)mode);
-        EmitSignal(SignalName.ProjectionReady);
+        if (GodotObject.IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion()
+            && _hexasphere == hexasphere && IsProjectionReady())
+            EmitSignal(SignalName.ProjectionReady);
     }
 
     /// <summary>Builds with the current Inspector settings, reusing unchanged geometry.</summary>
@@ -800,16 +867,14 @@ public partial class HexasphereProjectorController : Node2D
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!Visible) return;
+        if (!CanReceiveInput) return;
+        var viewport = GetViewport();
+        long revision = _projectionRevision;
 
         if (@event.IsActionPressed("ui_close_uv_map"))
         {
-            Visible = false;
-            ProcessMode = ProcessModeEnum.Disabled;
-
-            EmitSignal(SignalName.ProjectionClosed);
-
-            GetViewport().SetInputAsHandled();
+            viewport.SetInputAsHandled();
+            CloseProjection();
             return;
         }
 
@@ -818,7 +883,7 @@ public partial class HexasphereProjectorController : Node2D
         Vector2 pos = ToLocal(GetGlobalMousePosition());
         bool inBounds = pos.Y >= 0 && pos.Y <= _lastMapSize.Y && pos.X >= 0 && pos.X <= _lastMapSize.X;
 
-        if (@event is InputEventMouseMotion && IsHoverEnabled)
+        if (@event is InputEventMouseMotion && IsHoverEnabled && (_projectionOwner?.IsHoverEnabled ?? true))
         {
             int newHover = -1;
             if (inBounds)
@@ -832,7 +897,10 @@ public partial class HexasphereProjectorController : Node2D
             }
         }
 
-        if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } && IsClickEnabled)
+        if (!GodotObject.IsInstanceValid(this) || revision != _projectionRevision || !CanReceiveInput) return;
+
+        if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } && IsClickEnabled
+            && (_projectionOwner?.IsClickEnabled ?? true))
         {
             if (!inBounds) return;
 
@@ -843,12 +911,11 @@ public partial class HexasphereProjectorController : Node2D
             _selectedTile = hit;
             UpdateShaderSelection();
 
+            viewport.SetInputAsHandled();
             if (hit >= 0)
                 EmitSignal(SignalName.TileClicked, hit);
             else
                 EmitSignal(SignalName.TileDeselected);
-
-            GetViewport().SetInputAsHandled();
         }
     }
 
@@ -988,6 +1055,7 @@ public partial class HexasphereProjectorController : Node2D
             if (_cachedGeomHexasphere == source) ClearPrecomputedGeometry();
             return;
         }
+        CloseProjection();
         ReleaseProjectionResources();
         _hexasphere = null;
         _cachedHexasphere = null;
@@ -1009,7 +1077,11 @@ public partial class HexasphereProjectorController : Node2D
         _tileColorImage = null;
     }
 
-    public override void _ExitTree() => ReleaseProjectionResources();
+    public override void _ExitTree()
+    {
+        CloseProjection();
+        ReleaseProjectionResources();
+    }
 
     private void ReleaseProjectionResources()
     {

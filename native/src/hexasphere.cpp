@@ -4,22 +4,36 @@
 #include "tile.h"
 #include <godot_cpp/core/math.hpp>
 #include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <exception>
 #include <execution>
 #include <functional>
 #include <numeric>
+#include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 
 Hexasphere::~Hexasphere() = default;
 
+bool Hexasphere::are_valid_parameters(double radius, int64_t divisions, double hexSize)
+{
+    // Mesh arrays use signed 32-bit vertex counts, at most 18 vertices per tile.
+    const double tile_count = 10.0 * double(divisions) * double(divisions) + 2.0;
+    return std::isfinite(radius) && radius > 0.0 && divisions >= 1
+        && tile_count <= std::numeric_limits<int32_t>::max() / 18
+        && std::isfinite(hexSize) && hexSize >= 0.1 && hexSize <= 1.0;
+}
+
 Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
     : _radius(radius), _divisions(divisions), _hexSize(hexSize)
 {
-    if (radius <= 0.0f)
-        throw std::invalid_argument("Radius must be positive");
+    if (!are_valid_parameters(radius, divisions, hexSize))
+        throw std::invalid_argument("Invalid hexasphere generation parameters");
 
-    _pointEpsilon = 1e-5f * _radius;
-    _gridScale = 1e5f / _radius;
+    _pointEpsilon = 1e-5 * _radius;
+    _gridScale = 1e5 / _radius;
 
     int estimatedPoints = 10 * divisions * divisions + 2;
     _points.reserve(estimatedPoints);
@@ -84,7 +98,11 @@ std::vector<int32_t> Hexasphere::construct_icosahedron()
 
 int32_t Hexasphere::cache_point(const Vector3 &raw_position)
 {
-    Vector3 position = raw_position.normalized() * _radius;
+    const double length = std::hypot(double(raw_position.x), double(raw_position.y), double(raw_position.z));
+    if (!std::isfinite(length) || length == 0.0)
+        throw std::invalid_argument("Cannot project a degenerate sphere point");
+    Vector3 position(raw_position.x / length * _radius,
+        raw_position.y / length * _radius, raw_position.z / length * _radius);
 
     Vector3i gridPos(
         static_cast<int>(std::round(position.x * _gridScale)),
@@ -162,11 +180,27 @@ void Hexasphere::construct_tiles()
     std::vector<int> indices(n);
     std::iota(indices.begin(), indices.end(), 0);
 
-    std::for_each(std::execution::par, indices.begin(), indices.end(), [this](int i)
+    // Standard parallel algorithms terminate if a callback throws. Capture
+    // construction failures here so the GDExtension boundary can reject safely.
+    std::exception_ptr construction_error;
+    std::mutex error_mutex;
+    std::atomic<bool> failed{false};
+    std::for_each(std::execution::par, indices.begin(), indices.end(), [this, &construction_error, &error_mutex, &failed](int i)
     {
-        _tiles[i] = std::make_unique<Tile>(i, _radius, _hexSize, _faces, _points);
-        _tiles[i]->set_index(i);
+        if (failed.load(std::memory_order_relaxed)) return;
+        try
+        {
+            _tiles[i] = std::make_unique<Tile>(i, _radius, _hexSize, _faces, _points);
+            _tiles[i]->set_index(i);
+        }
+        catch (...)
+        {
+            std::lock_guard<std::mutex> lock(error_mutex);
+            if (!construction_error) construction_error = std::current_exception();
+            failed.store(true, std::memory_order_relaxed);
+        }
     });
+    if (construction_error) std::rethrow_exception(construction_error);
 
     std::unordered_map<int, Tile *> tile_map;
     tile_map.reserve(n);

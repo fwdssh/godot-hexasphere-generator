@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <stdexcept>
 #include <vector>
 #include <godot_cpp/variant/vector3.hpp>
 
@@ -29,13 +30,18 @@ public:
 
     const int32_t* get_face_indices() const { return _faceIndices.data(); }
     int get_face_count() const { return _faceCount; }
-    void assign_face_index(int32_t faceIdx) { _faceIndices[_faceCount++] = faceIdx; }
+    void assign_face_index(int32_t faceIdx)
+    {
+        if (_faceCount >= static_cast<int>(_faceIndices.size()))
+            throw std::invalid_argument("Sphere point exceeds supported face count");
+        _faceIndices[_faceCount++] = faceIdx;
+    }
 
     std::vector<int32_t> subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& cache_func, const std::vector<Point>& points) const;
     std::vector<int32_t> get_ordered_faces(const std::vector<Face>& faces) const;
 
-    static bool is_overlapping(const Point& a, const Point& b, float epsilon);
-    static bool is_overlapping(const Point& a, const Vector3& b_pos, float epsilon);
+    static bool is_overlapping(const Point& a, const Point& b, double epsilon);
+    static bool is_overlapping(const Point& a, const Vector3& b_pos, double epsilon);
 
     std::string to_string() const;
 };

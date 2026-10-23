@@ -22,20 +22,29 @@ public partial class UvCamera2D : Camera2D
 
     public override void _Ready()
     {
-        ProcessMode = ProcessModeEnum.Always;
+        ProcessMode = ProcessModeEnum.Inherit;
+        Enabled = false;
         _projector = GetParent<HexasphereProjectorController>();
     }
 
     public override void _Process(double delta)
     {
-        if (_projector != null && !_projector.Visible) return;
+        if (!GodotObject.IsInstanceValid(_projector) || !_projector.CanReceiveInput)
+        {
+            ResetDragging();
+            return;
+        }
         
         Zoom = Zoom.Lerp(new Vector2(TargetZoom, TargetZoom), (float)delta * 10f);
     }
 
     public override void _Input(InputEvent @event)
     {
-        if (_projector != null && !_projector.Visible) return;
+        if (!GodotObject.IsInstanceValid(_projector) || !_projector.CanReceiveInput)
+        {
+            ResetDragging();
+            return;
+        }
         
         if (@event is InputEventMouseButton mouseButton)
         {
@@ -71,6 +80,8 @@ public partial class UvCamera2D : Camera2D
             GetViewport().SetInputAsHandled();
         }
     }
+
+    internal void ResetDragging() => _isDragging = false;
 
     /// <summary>
     /// Sets the panning limits relative to the map center.

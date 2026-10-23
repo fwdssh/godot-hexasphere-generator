@@ -31,8 +31,8 @@ private:
     float _radius;
     int _divisions;
     float _hexSize;
-    float _pointEpsilon;
-    float _gridScale;
+    double _pointEpsilon;
+    double _gridScale;
 
     std::vector<Point> _points;
     std::vector<Face> _faces;
@@ -41,6 +41,7 @@ private:
 
 public:
     Hexasphere(float radius, int divisions, float hexSize);
+    static bool are_valid_parameters(double radius, int64_t divisions, double hexSize);
     ~Hexasphere();
     Hexasphere(const Hexasphere &) = delete;
     Hexasphere &operator=(const Hexasphere &) = delete;

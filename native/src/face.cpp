@@ -1,18 +1,24 @@
 #include "face.h"
 #include "point.h"
+#include <cmath>
 #include <stdexcept>
 
 Face::Face(int32_t pointIdx1, int32_t pointIdx2, int32_t pointIdx3, int localId,
            const Vector3& p1, const Vector3& p2, const Vector3& p3)
     : _id(localId)
 {
-    Vector3 center((p1.x + p2.x + p3.x) / 3.0f,
-                   (p1.y + p2.y + p3.y) / 3.0f,
-                   (p1.z + p2.z + p3.z) / 3.0f);
-
-    Vector3 cross = (p2 - p1).cross(p3 - p1);
-    float crossLen = cross.length();
-    bool outward = center.length_squared() < (center + (cross / crossLen)).length_squared();
+    // Double intermediates keep the sign independent of the sphere's scale,
+    // including radii whose squared length underflows or overflows real_t.
+    const double ax = double(p2.x) - p1.x, ay = double(p2.y) - p1.y, az = double(p2.z) - p1.z;
+    const double bx = double(p3.x) - p1.x, by = double(p3.y) - p1.y, bz = double(p3.z) - p1.z;
+    const double nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    const double cx = (double(p1.x) + p2.x + p3.x) / 3.0;
+    const double cy = (double(p1.y) + p2.y + p3.y) / 3.0;
+    const double cz = (double(p1.z) + p2.z + p3.z) / 3.0;
+    const double orientation = cx * nx + cy * ny + cz * nz;
+    if (!std::isfinite(orientation) || orientation == 0.0)
+        throw std::invalid_argument("Cannot orient a degenerate sphere face");
+    const bool outward = orientation > 0.0;
 
     if (outward)
     {
@@ -34,9 +40,9 @@ Vector3 Face::get_center_position(const std::vector<Point>& points) const
     const Point& p2 = points[_pointIndices[1]];
     const Point& p3 = points[_pointIndices[2]];
     return Vector3(
-        (p1.get_position().x + p2.get_position().x + p3.get_position().x) / 3.0f,
-        (p1.get_position().y + p2.get_position().y + p3.get_position().y) / 3.0f,
-        (p1.get_position().z + p2.get_position().z + p3.get_position().z) / 3.0f);
+        (double(p1.get_position().x) + p2.get_position().x + p3.get_position().x) / 3.0,
+        (double(p1.get_position().y) + p2.get_position().y + p3.get_position().y) / 3.0,
+        (double(p1.get_position().z) + p2.get_position().z + p3.get_position().z) / 3.0);
 }
 
 void Face::get_other_point_indices(int32_t pointIdx, int32_t& out_a, int32_t& out_b) const
