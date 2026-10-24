@@ -1,17 +1,33 @@
-.godot/
+# Godot / .NET generated files
+/.godot/
+/.mono/
 /android/
-.mono/
 *.sln
 *.import
+**/obj/
+.vs/
 
-# Build artifacts
+# Native build intermediates (the shipped DLLs stay versioned)
 *.obj
+*.o
 *.os
 *.exp
 *.lib
-native/.sconsign.dblite
+*.pdb
+*.ilk
+*.pyc
+__pycache__/
+/native/.sconsign*
+/native/godot-cpp/bin/
+
+# Local work files; keep these outside the release project
+/docs/
+/tools/
+/TODO.md
+*.old
+*.tmp
 *~
-native/godot-cpp/bin/
-addons/hexasphere_generator/bin/*.exp
-addons/hexasphere_generator/bin/*.lib
-addons/hexasphere_generator/bin/~*
+~*
+*.log
+.DS_Store
+Thumbs.db

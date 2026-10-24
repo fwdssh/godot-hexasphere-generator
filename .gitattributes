@@ -2,7 +2,8 @@
 * text=auto eol=lf
 
 
-# Only include the addons folder when downloading from the Asset Library.
+# Ship the addon and its license when downloading from the Asset Library.
 /** export-ignore
 /addons    !export-ignore
 /addons/** !export-ignore
+/LICENSE   !export-ignore
