@@ -1,76 +1,49 @@
 #include "tile.h"
 #include "point.h"
 #include "face.h"
-#include <godot_cpp/core/math.hpp>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
-#include <unordered_set>
 
-Tile::Tile(int32_t centerIdx, float radius, float size, const std::vector<Face>& globalFaces, const std::vector<Point>& globalPoints)
-    : _centerIdx(centerIdx), _radius(radius), _size(Math::clamp(size, 0.01f, 1.0f))
+void Tile::build(int32_t centerIdx, float radius, float size, const std::vector<Face> &globalFaces, const std::vector<Point> &globalPoints)
 {
-    std::vector<int32_t> icosahedron_faces = globalPoints[centerIdx].get_ordered_faces(globalFaces);
+    const Point &center = globalPoints[centerIdx];
+    _center = center.get_position();
+    std::array<int32_t, 6> orderedFaces;
+    const int faceCount = center.get_ordered_faces(globalFaces, orderedFaces);
 
-    store_neighbour_centers(icosahedron_faces, globalFaces);
-    build_faces(icosahedron_faces, globalFaces, globalPoints);
-}
-
-void Tile::store_neighbour_centers(const std::vector<int32_t>& icosahedron_faces, const std::vector<Face>& globalFaces)
-{
-    std::unordered_set<int> seen;
-    for (int32_t faceIdx : icosahedron_faces)
+    for (int i = 0; i < faceCount; i++)
     {
+        const Face &face = globalFaces[orderedFaces[i]];
         int32_t a = -1, b = -1;
-        globalFaces[faceIdx].get_other_point_indices(_centerIdx, a, b);
+        face.get_other_point_indices(centerIdx, a, b);
+        add_neighbour(a);
+        add_neighbour(b);
 
-        if (seen.insert(a).second)
-            _neighbourCenters[_neighbourCenterCount++] = a;
-        if (seen.insert(b).second)
-            _neighbourCenters[_neighbourCenterCount++] = b;
-    }
-}
-
-void Tile::build_faces(const std::vector<int32_t>& icosahedron_faces, const std::vector<Face>& globalFaces, const std::vector<Point>& globalPoints)
-{
-    Vector3 centerPos = globalPoints[_centerIdx].get_position();
-    int localPtId = 0;
-    for (int32_t faceIdx : icosahedron_faces)
-    {
-        Vector3 lerped = centerPos.lerp(globalFaces[faceIdx].get_center_position(globalPoints), _size);
+        Vector3 lerped = _center.lerp(face.get_center_position(globalPoints), size);
         const double length = std::hypot(double(lerped.x), double(lerped.y), double(lerped.z));
         if (!std::isfinite(length) || length == 0.0)
             throw std::invalid_argument("Cannot project a degenerate tile boundary");
-        _boundaryPoints[_boundaryCount++] = Point(Vector3(lerped.x / length * _radius,
-            lerped.y / length * _radius, lerped.z / length * _radius), localPtId++);
+        _boundaryPoints[_boundaryCount++] = Vector3(lerped.x / length * radius,
+            lerped.y / length * radius, lerped.z / length * radius);
     }
 
-    int n = _boundaryCount;
-    if (n < 3) return;
-
-    int localFaceId = 0;
-    for (int i = 1; i < n - 1; i++)
+    for (int i = 1; i < _boundaryCount - 1; i++)
     {
-        _faces[_faceCount] = Face(0, i, i + 1, localFaceId++,
-            _boundaryPoints[0].get_position(),
-            _boundaryPoints[i].get_position(),
-            _boundaryPoints[i + 1].get_position());
-
-        _faceIndices[_faceCount] = {
-            _faces[_faceCount].get_point_indices()[0],
-            _faces[_faceCount].get_point_indices()[1],
-            _faces[_faceCount].get_point_indices()[2]
-        };
-        _faceCount++;
+        const Face triangle(0, i, i + 1, i - 1,
+            _boundaryPoints[0], _boundaryPoints[i], _boundaryPoints[i + 1]);
+        const int32_t *indices = triangle.get_point_indices();
+        _faceIndices[_faceCount++] = {static_cast<uint8_t>(indices[0]),
+            static_cast<uint8_t>(indices[1]), static_cast<uint8_t>(indices[2])};
     }
 }
 
-void Tile::resolve_neighbour_tiles_fast(const std::unordered_map<int, Tile*>& tile_map)
+void Tile::add_neighbour(int32_t index)
 {
-    _neighbourCount = 0;
-    for (int i = 0; i < _neighbourCenterCount; i++)
-    {
-        auto it = tile_map.find(_neighbourCenters[i]);
-        if (it != tile_map.end())
-            _neighbours[_neighbourCount++] = it->second;
-    }
+    const auto end = _neighbours.begin() + _neighbourCount;
+    if (std::find(_neighbours.begin(), end, index) != end)
+        return;
+    if (_neighbourCount == _neighbours.size())
+        throw std::invalid_argument("Sphere tile exceeds supported neighbour count");
+    _neighbours[_neighbourCount++] = index;
 }

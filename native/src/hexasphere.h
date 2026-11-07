@@ -2,17 +2,16 @@
 #define HEXASPHERE_HEXASPHERE_H
 
 #include <cstddef>
-#include <memory>
 #include <vector>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 #include "ankerl/unordered_dense.h"
+#include "tile.h"
 
 using namespace godot;
 
 class Point;
 class Face;
-class Tile;
 
 struct Vector3iHash
 {
@@ -36,7 +35,7 @@ private:
 
     std::vector<Point> _points;
     std::vector<Face> _faces;
-    std::vector<std::unique_ptr<Tile>> _tiles;
+    std::vector<Tile> _tiles;
     ankerl::unordered_dense::map<Vector3i, int32_t, Vector3iHash> _pointGrid;
 
 public:
@@ -46,8 +45,7 @@ public:
     Hexasphere(const Hexasphere &) = delete;
     Hexasphere &operator=(const Hexasphere &) = delete;
 
-    const std::vector<std::unique_ptr<Tile>> &get_tiles() const { return _tiles; }
-    const std::vector<Point> &get_points() const { return _points; }
+    const std::vector<Tile> &get_tiles() const { return _tiles; }
     int get_tile_count() const { return static_cast<int>(_tiles.size()); }
 
 private:

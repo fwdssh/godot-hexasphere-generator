@@ -34,20 +34,19 @@ std::vector<int32_t> Point::subdivide(int32_t targetIdx, int count, const std::f
     return segments;
 }
 
-std::vector<int32_t> Point::get_ordered_faces(const std::vector<Face>& faces) const
+int Point::get_ordered_faces(const std::vector<Face>& faces, std::array<int32_t, 6>& ordered) const
 {
     int count = _faceCount;
-    if (count == 0) return {};
+    if (count == 0) return 0;
 
-    std::vector<int32_t> ordered;
-    ordered.reserve(static_cast<size_t>(count));
-    ordered.push_back(_faceIndices[0]);
+    int orderedCount = 1;
+    ordered[0] = _faceIndices[0];
 
-    std::vector<bool> visited(static_cast<size_t>(count), false);
+    std::array<bool, 6> visited{};
     visited[0] = true;
     int currentIdx = 0;
 
-    while (static_cast<int>(ordered.size()) < count)
+    while (orderedCount < count)
     {
         const Face& cur = faces[_faceIndices[currentIdx]];
         const int32_t* cur_ids = cur.get_point_indices();
@@ -65,7 +64,7 @@ std::vector<int32_t> Point::get_ordered_faces(const std::vector<Face>& faces) co
             {
                 visited[i] = true;
                 currentIdx = i;
-                ordered.push_back(_faceIndices[i]);
+                ordered[orderedCount++] = _faceIndices[i];
                 found = true;
                 break;
             }
@@ -73,7 +72,7 @@ std::vector<int32_t> Point::get_ordered_faces(const std::vector<Face>& faces) co
         if (!found) break;
     }
 
-    return ordered;
+    return orderedCount;
 }
 
 bool Point::is_overlapping(const Point& a, const Point& b, double epsilon)

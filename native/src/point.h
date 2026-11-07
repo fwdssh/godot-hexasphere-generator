@@ -38,7 +38,7 @@ public:
     }
 
     std::vector<int32_t> subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& cache_func, const std::vector<Point>& points) const;
-    std::vector<int32_t> get_ordered_faces(const std::vector<Face>& faces) const;
+    int get_ordered_faces(const std::vector<Face>& faces, std::array<int32_t, 6>& ordered) const;
 
     static bool is_overlapping(const Point& a, const Point& b, double epsilon);
     static bool is_overlapping(const Point& a, const Vector3& b_pos, double epsilon);

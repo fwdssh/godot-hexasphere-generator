@@ -90,7 +90,7 @@ Vector3 NativeHexasphere::get_tile_center(int tile_idx) const
 {
     if (!_hexasphere || tile_idx < 0 || tile_idx >= _hexasphere->get_tile_count())
         return Vector3();
-    return _hexasphere->get_points()[_hexasphere->get_tiles()[tile_idx]->get_center()].get_position();
+    return _hexasphere->get_tiles()[tile_idx].get_center();
 }
 
 /// <summary>
@@ -107,7 +107,7 @@ PackedVector3Array NativeHexasphere::get_all_tile_centers() const
     PackedVector3Array result;
     result.resize(tileCount);
     for (int i = 0; i < tileCount; i++)
-        result[i] = _hexasphere->get_points()[tiles[i]->get_center()].get_position();
+        result[i] = tiles[i].get_center();
 
     return result;
 }
@@ -122,13 +122,13 @@ PackedVector3Array NativeHexasphere::get_tile_points(int tile_idx) const
         return PackedVector3Array();
 
     const auto &tiles = _hexasphere->get_tiles();
-    const auto &boundary = tiles[tile_idx]->get_boundary_points();
-    int count = tiles[tile_idx]->get_boundary_count();
+    const auto &boundary = tiles[tile_idx].get_boundary_points();
+    int count = tiles[tile_idx].get_boundary_count();
 
     PackedVector3Array result;
     result.resize(count);
     for (int i = 0; i < count; i++)
-        result[i] = boundary[i].get_position();
+        result[i] = boundary[i];
 
     return result;
 }
@@ -144,8 +144,8 @@ PackedInt32Array NativeHexasphere::get_tile_faces(int tile_idx) const
 
     const auto &tiles = _hexasphere->get_tiles();
     const auto &tile = tiles[tile_idx];
-    const auto &faceIndices = tile->get_face_indices();
-    int face_count = tile->get_face_count();
+    const auto &faceIndices = tile.get_face_indices();
+    int face_count = tile.get_face_count();
 
     PackedInt32Array result;
     result.resize(face_count * 3);
@@ -184,8 +184,8 @@ Dictionary NativeHexasphere::get_build_data() const
     int totalFaceIndices = 0;
     for (int t = 0; t < tileCount; t++)
     {
-        totalPoints += tiles[t]->get_boundary_count();
-        totalFaceIndices += tiles[t]->get_face_count() * 3;
+        totalPoints += tiles[t].get_boundary_count();
+        totalFaceIndices += tiles[t].get_face_count() * 3;
     }
 
     PackedVector3Array points;
@@ -202,15 +202,15 @@ Dictionary NativeHexasphere::get_build_data() const
 
     for (int t = 0; t < tileCount; t++)
     {
-        const auto &boundary = tiles[t]->get_boundary_points();
-        int ptCount = tiles[t]->get_boundary_count();
+        const auto &boundary = tiles[t].get_boundary_points();
+        int ptCount = tiles[t].get_boundary_count();
         pointCounts[t] = ptCount;
 
         for (int i = 0; i < ptCount; i++)
-            points[ptOffset + i] = boundary[i].get_position();
+            points[ptOffset + i] = boundary[i];
 
-        const auto &tileFaceIndices = tiles[t]->get_face_indices();
-        int faceCount = tiles[t]->get_face_count();
+        const auto &tileFaceIndices = tiles[t].get_face_indices();
+        int faceCount = tiles[t].get_face_count();
         faceVertexCounts[t] = faceCount * 3;
 
         for (int f = 0; f < faceCount; f++)
@@ -252,7 +252,7 @@ Dictionary NativeHexasphere::get_border_data() const
 
     int totalPositions = 0;
     for (int t = 0; t < tileCount; t++)
-        totalPositions += tiles[t]->get_boundary_count() * 2;
+        totalPositions += tiles[t].get_boundary_count() * 2;
 
     PackedVector3Array positions;
     positions.resize(totalPositions);
@@ -262,15 +262,15 @@ Dictionary NativeHexasphere::get_border_data() const
     int posOffset = 0;
     for (int t = 0; t < tileCount; t++)
     {
-        const auto &boundary = tiles[t]->get_boundary_points();
-        int ptCount = tiles[t]->get_boundary_count();
+        const auto &boundary = tiles[t].get_boundary_points();
+        int ptCount = tiles[t].get_boundary_count();
         tileLineCounts[t] = ptCount * 2;
 
         for (int p = 0; p < ptCount; p++)
         {
             int next = (p + 1) % ptCount;
-            positions[posOffset + p * 2 + 0] = boundary[p].get_position();
-            positions[posOffset + p * 2 + 1] = boundary[next].get_position();
+            positions[posOffset + p * 2 + 0] = boundary[p];
+            positions[posOffset + p * 2 + 1] = boundary[next];
         }
 
         posOffset += ptCount * 2;
@@ -307,7 +307,7 @@ Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
     int totalVertices = 0;
     const int end_tile = first_tile + tile_count;
     for (int t = first_tile; t < end_tile; t++)
-        totalVertices += tiles[t]->get_face_count() * 3;
+        totalVertices += tiles[t].get_face_count() * 3;
 
     PackedVector3Array vertices;
     vertices.resize(totalVertices);
@@ -324,9 +324,9 @@ Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
 
     for (int t = first_tile; t < end_tile; t++)
     {
-        const auto &boundary = tiles[t]->get_boundary_points();
-        const auto &tileFaceIndices = tiles[t]->get_face_indices();
-        int faceCount = tiles[t]->get_face_count();
+        const auto &boundary = tiles[t].get_boundary_points();
+        const auto &tileFaceIndices = tiles[t].get_face_indices();
+        int faceCount = tiles[t].get_face_count();
 
         if (vertex_counts) (*vertex_counts)[t - first_tile] = faceCount * 3;
         Vector2 tileUV(t, 0.0f);
@@ -342,7 +342,7 @@ Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
             int order[3] = { localIdx[0], localIdx[2], localIdx[1] };
             for (int v = 0; v < 3; v++)
             {
-                Vector3 pos = boundary[order[v]].get_position();
+                Vector3 pos = boundary[order[v]];
                 int vi = globalVertexIndex++;
                 vertices[vi] = pos;
                 // Scale before normalizing so real_t length-squared stays in range.
@@ -442,7 +442,7 @@ Dictionary NativeHexasphere::get_all_tile_neighbors() const
 
     int totalNeighbors = 0;
     for (int t = 0; t < tileCount; t++)
-        totalNeighbors += tiles[t]->get_neighbour_count();
+        totalNeighbors += tiles[t].get_neighbour_count();
 
     PackedInt32Array neighborIndices;
     neighborIndices.resize(totalNeighbors);
@@ -453,10 +453,10 @@ Dictionary NativeHexasphere::get_all_tile_neighbors() const
     for (int t = 0; t < tileCount; t++)
     {
         offsets[t] = writePos;
-        const Tile *const *neighbours = tiles[t]->get_neighbours_data();
-        int nCount = tiles[t]->get_neighbour_count();
+        const int32_t *neighbours = tiles[t].get_neighbours_data();
+        int nCount = tiles[t].get_neighbour_count();
         for (int n = 0; n < nCount; n++)
-            neighborIndices[writePos++] = neighbours[n] ? neighbours[n]->get_index() : -1;
+            neighborIndices[writePos++] = neighbours[n];
     }
     offsets[tileCount] = writePos;
 

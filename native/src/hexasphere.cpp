@@ -9,11 +9,9 @@
 #include <exception>
 #include <execution>
 #include <functional>
-#include <numeric>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
-#include <unordered_map>
 
 Hexasphere::~Hexasphere() = default;
 
@@ -40,16 +38,15 @@ Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
     int estimatedPoints = 10 * divisions * divisions + 2;
     _points.reserve(estimatedPoints);
     _pointGrid.reserve(estimatedPoints);
-    _tiles.reserve(estimatedPoints);
 
     auto ico_faces = construct_icosahedron();
     subdivide_icosahedron(ico_faces);
+    // The point lookup is only needed during subdivision.
+    _pointGrid = decltype(_pointGrid)();
     construct_tiles();
 
-    // Free subdivision data
-    _pointGrid = decltype(_pointGrid)();
-    _faces.clear();
-    _faces.shrink_to_fit();
+    decltype(_points){}.swap(_points);
+    decltype(_faces){}.swap(_faces);
 }
 
 std::vector<int32_t> Hexasphere::construct_icosahedron()
@@ -176,24 +173,22 @@ void Hexasphere::subdivide_icosahedron(const std::vector<int32_t> &ico_faces)
 
 void Hexasphere::construct_tiles()
 {
-    int n = static_cast<int>(_points.size());
-    _tiles.resize(n);
-
-    std::vector<int> indices(n);
-    std::iota(indices.begin(), indices.end(), 0);
+    _tiles.resize(_points.size());
+    Tile *const first = _tiles.data();
 
     // Standard parallel algorithms terminate if a callback throws. Capture
     // construction failures here so the GDExtension boundary can reject safely.
     std::exception_ptr construction_error;
     std::mutex error_mutex;
     std::atomic<bool> failed{false};
-    std::for_each(std::execution::par, indices.begin(), indices.end(), [this, &construction_error, &error_mutex, &failed](int i)
+    std::for_each(std::execution::par, _tiles.begin(), _tiles.end(), [this, first, &construction_error, &error_mutex, &failed](Tile &tile)
     {
         if (failed.load(std::memory_order_relaxed)) return;
         try
         {
-            _tiles[i] = std::make_unique<Tile>(i, _radius, _hexSize, _faces, _points);
-            _tiles[i]->set_index(i);
+            // Tile IDs match their source point indices.
+            const auto index = static_cast<int32_t>(&tile - first);
+            tile.build(index, _radius, _hexSize, _faces, _points);
         }
         catch (...)
         {
@@ -203,14 +198,4 @@ void Hexasphere::construct_tiles()
         }
     });
     if (construction_error) std::rethrow_exception(construction_error);
-
-    std::unordered_map<int, Tile *> tile_map;
-    tile_map.reserve(n);
-    for (const auto &tile : _tiles)
-        tile_map[tile->get_center()] = tile.get();
-
-    std::for_each(std::execution::par, indices.begin(), indices.end(), [this, &tile_map](int i)
-    {
-        _tiles[i]->resolve_neighbour_tiles_fast(tile_map);
-    });
 }
