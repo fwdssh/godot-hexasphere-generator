@@ -16,6 +16,7 @@ public class NativeHexasphere : IDisposable
     private readonly bool _supportsMeshPreparation;
     private readonly bool _supportsMeshChunks;
     private readonly bool _supportsIndexedMeshChunks;
+    private readonly bool _supportsTileNeighbors;
     internal long GeometryVersion => Interlocked.Read(ref _geometryVersion);
     internal bool HasSharedTileEdges { get; private set; } = true;
 
@@ -37,6 +38,7 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodAppendMeshChunk = "append_mesh_chunk";
     private static readonly StringName MethodGetAllTileCenters = "get_all_tile_centers";
     private static readonly StringName MethodGetAllTileNeighbors = "get_all_tile_neighbors";
+    private static readonly StringName MethodGetTileNeighbors = "get_tile_neighbors";
 
     /// <summary>
     /// Instantiates the native GDExtension hexasphere object.
@@ -52,6 +54,7 @@ public class NativeHexasphere : IDisposable
         _supportsMeshPreparation = _native.HasMethod(MethodPrepareMesh);
         _supportsMeshChunks = _native.HasMethod(MethodPrepareMeshChunks) && _native.HasMethod(MethodAppendMeshChunk);
         _supportsIndexedMeshChunks = _supportsMeshChunks && _native.HasMethod(MethodPrepareIndexedMeshChunks);
+        _supportsTileNeighbors = _native.HasMethod(MethodGetTileNeighbors);
     }
 
     /// <summary>
@@ -376,6 +379,38 @@ public class NativeHexasphere : IDisposable
         {
             _semaphore.Release();
         }
+    }
+
+    /// <summary>Returns neighbor IDs in native order, or an empty array for an invalid tile ID.</summary>
+    public virtual int[] GetTileNeighbors(int tileIndex)
+    {
+        if (_supportsTileNeighbors && GetType() == typeof(NativeHexasphere))
+        {
+            _semaphore.Wait();
+            try
+            {
+                ThrowIfDisposed();
+                return (int[])_native.Call(MethodGetTileNeighbors, tileIndex);
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+
+        // Older binaries and custom wrappers can supply the same topology through the bulk API.
+        using var data = GetAllTileNeighbors();
+        int[] offsets = (int[])data["offsets"];
+        if (tileIndex < 0 || tileIndex >= offsets.Length - 1) return System.Array.Empty<int>();
+        int[] indices = (int[])data["neighbor_indices"];
+        return indices.AsSpan(offsets[tileIndex], offsets[tileIndex + 1] - offsets[tileIndex]).ToArray();
+    }
+
+    /// <summary>Returns all neighbor IDs and offsets. Tile t occupies the range [Offsets[t], Offsets[t + 1]).</summary>
+    public (int[] NeighborIndices, int[] Offsets) GetTileNeighborData()
+    {
+        using var data = GetAllTileNeighbors();
+        return ((int[])data["neighbor_indices"], (int[])data["offsets"]);
     }
 
     /// <summary>

@@ -54,6 +54,7 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("get_prepared_mesh_chunk_count"), &NativeHexasphere::get_prepared_mesh_chunk_count);
     ClassDB::bind_method(D_METHOD("append_mesh_chunk", "mesh"), &NativeHexasphere::append_mesh_chunk);
     ClassDB::bind_method(D_METHOD("get_all_tile_neighbors"), &NativeHexasphere::get_all_tile_neighbors);
+    ClassDB::bind_method(D_METHOD("get_tile_neighbors", "tile_idx"), &NativeHexasphere::get_tile_neighbors);
 }
 
 /// <summary>
@@ -711,6 +712,21 @@ Dictionary NativeHexasphere::build_mesh()
     result["used_prepared_arrays"] = was_prepared;
     // CPU staging arrays should not live for the lifetime of the ready sphere.
     clear_mesh_preparation();
+    return result;
+}
+
+PackedInt32Array NativeHexasphere::get_tile_neighbors(int tile_idx) const
+{
+    PackedInt32Array result;
+    if (tile_idx < 0 || tile_idx >= get_tile_count())
+        return result;
+
+    const auto &tile = _hexasphere->get_tiles()[tile_idx];
+    const int count = tile.get_neighbour_count();
+    result.resize(count);
+    const int32_t *neighbours = tile.get_neighbours_data();
+    for (int i = 0; i < count; ++i)
+        result[i] = neighbours[i];
     return result;
 }
 

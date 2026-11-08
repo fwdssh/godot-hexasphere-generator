@@ -313,6 +313,16 @@ virtual protected void OnShaderReady()
         }
     }
 
+    /// <summary>Opens this sphere's UV map and reports whether it is open after the call.</summary>
+    public bool TryOpenUvMap()
+    {
+        OpenUvProjector();
+        return OwnsActiveUv();
+    }
+
+    /// <summary>Closes the UV map owned by this sphere.</summary>
+    public void CloseUvMap() => CloseUvProjectorFromRouter();
+
     private bool HasInteractionResources() => GodotObject.IsInstanceValid(this) && IsInsideTree()
         && !IsQueuedForDeletion() && _planetReady && _hexasphere != null;
     private bool InteractionUnchanged(long revision, NativeHexasphere source) =>
@@ -766,16 +776,43 @@ virtual protected void OnShaderReady()
     /// </summary>
     public void SetTileColor(int tileIndex, Color color)
     {
-        if (tileIndex < 0 || tileIndex >= TileCount) return;
+        if (TrySetTileColor(tileIndex, color)) RefreshEditedTileColors();
+    }
+
+    /// <summary>
+    /// Sets colors by tile ID and refreshes the palette once. Arrays must have equal lengths.
+    /// Invalid IDs and unsupported custom cells are skipped. The last value for a repeated ID wins.
+    /// </summary>
+    public void SetTileColors(int[] tileIndices, Color[] colors)
+    {
+        System.ArgumentNullException.ThrowIfNull(tileIndices);
+        System.ArgumentNullException.ThrowIfNull(colors);
+        if (tileIndices.Length != colors.Length)
+            throw new System.ArgumentException("Supply one color per tile ID.", nameof(colors));
+
+        bool updated = false;
+        for (int i = 0; i < tileIndices.Length; i++)
+            updated |= TrySetTileColor(tileIndices[i], colors[i]);
+        if (updated) RefreshEditedTileColors();
+    }
+
+    private bool TrySetTileColor(int tileIndex, Color color)
+    {
+        if (tileIndex < 0 || tileIndex >= TileCount) return false;
         if (_denseTileColors != null)
         {
             _denseTileColors[tileIndex] = color;
-            RefreshDenseTileColors();
-            return;
+            return true;
         }
-        if (_cellDatas[tileIndex] is not HexCellData hex) return;
+        if (_cellDatas[tileIndex] is not HexCellData hex) return false;
         hex.color = color;
-        RefreshTileColors();
+        return true;
+    }
+
+    private void RefreshEditedTileColors()
+    {
+        if (_denseTileColors != null) RefreshDenseTileColors();
+        else RefreshTileColors();
     }
 
     /// <summary>Updates supported cells in the supplied prefix; the remaining cells keep their colors.</summary>
@@ -867,6 +904,14 @@ virtual protected void OnShaderReady()
     public Vector3[] GetTilePoints(int tileIndex)
     {
         return _hexasphere?.GetTilePoints(tileIndex) ?? System.Array.Empty<Vector3>();
+    }
+
+    /// <summary>Returns neighbor tile IDs, or an empty array if the planet is unready or the ID is invalid.</summary>
+    public int[] GetTileNeighbors(int tileIndex)
+    {
+        if (!_planetReady || _hexasphere == null || tileIndex < 0 || tileIndex >= TileCount)
+            return System.Array.Empty<int>();
+        return _hexasphere.GetTileNeighbors(tileIndex);
     }
 
     /// <summary>
