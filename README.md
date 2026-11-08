@@ -10,11 +10,6 @@ Generate spherical grids of hexagons with exactly **12 pentagons**. C++ geometry
 - Mesh uploads and initial visual setup spread across frames.
 - Detailed or raster UV maps with pan, zoom and tile picking.
 
-## Changes in 1.3.1
-
-- Faster generation and lower memory use for the built-in node, including a compact tile palette.
-- Tile-neighbor queries, batch recoloring by tile ID and open/close methods for the sphere's UV map.
-
 ## Installation
 
 Requires **Godot .NET 4.7+**, including for GDScript callers. Tested with **Godot 4.7.2 .NET**, Godot.NET.Sdk 4.7.2, a **.NET 9** target and Windows x86-64.
