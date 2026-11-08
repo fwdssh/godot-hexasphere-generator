@@ -15,6 +15,7 @@ public class NativeHexasphere : IDisposable
     private long _geometryVersion;
     private readonly bool _supportsMeshPreparation;
     private readonly bool _supportsMeshChunks;
+    private readonly bool _supportsIndexedMeshChunks;
     internal long GeometryVersion => Interlocked.Read(ref _geometryVersion);
     internal bool HasSharedTileEdges { get; private set; } = true;
 
@@ -28,6 +29,7 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodBuildMesh = "build_mesh";
     private static readonly StringName MethodPrepareMesh = "prepare_mesh";
     private static readonly StringName MethodPrepareMeshChunks = "prepare_mesh_chunks";
+    private static readonly StringName MethodPrepareIndexedMeshChunks = "_prepare_indexed_mesh_chunks";
     private static readonly StringName MethodAppendMeshChunk = "append_mesh_chunk";
     private static readonly StringName MethodGetAllTileCenters = "get_all_tile_centers";
     private static readonly StringName MethodGetAllTileNeighbors = "get_all_tile_neighbors";
@@ -45,6 +47,7 @@ public class NativeHexasphere : IDisposable
         _native = ClassDB.Instantiate("NativeHexasphere").AsGodotObject();
         _supportsMeshPreparation = _native.HasMethod(MethodPrepareMesh);
         _supportsMeshChunks = _native.HasMethod(MethodPrepareMeshChunks) && _native.HasMethod(MethodAppendMeshChunk);
+        _supportsIndexedMeshChunks = _supportsMeshChunks && _native.HasMethod(MethodPrepareIndexedMeshChunks);
     }
 
     /// <summary>
@@ -222,6 +225,20 @@ public class NativeHexasphere : IDisposable
         {
             ThrowIfDisposed();
             return _supportsMeshChunks ? (int)_native.Call(MethodPrepareMeshChunks, tilesPerSurface) : 0;
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    internal int PrepareIndexedMeshChunks(int tilesPerSurface)
+    {
+        _semaphore.Wait();
+        try
+        {
+            ThrowIfDisposed();
+            if (!_supportsIndexedMeshChunks) return 0;
+            int chunks = (int)_native.Call(MethodPrepareIndexedMeshChunks, tilesPerSurface);
+            if (chunks < 0) throw new InvalidOperationException("Could not prepare indexed mesh surfaces.");
+            return chunks;
         }
         finally { _semaphore.Release(); }
     }

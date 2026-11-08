@@ -34,6 +34,7 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("build_mesh"), &NativeHexasphere::build_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh"), &NativeHexasphere::prepare_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh_chunks", "tiles_per_chunk"), &NativeHexasphere::prepare_mesh_chunks);
+    ClassDB::bind_method(D_METHOD("_prepare_indexed_mesh_chunks", "tiles_per_chunk"), &NativeHexasphere::prepare_indexed_mesh_chunks);
     ClassDB::bind_method(D_METHOD("get_prepared_mesh_chunk_count"), &NativeHexasphere::get_prepared_mesh_chunk_count);
     ClassDB::bind_method(D_METHOD("append_mesh_chunk", "mesh"), &NativeHexasphere::append_mesh_chunk);
     ClassDB::bind_method(D_METHOD("get_all_tile_neighbors"), &NativeHexasphere::get_all_tile_neighbors);
@@ -282,6 +283,13 @@ Dictionary NativeHexasphere::get_border_data() const
     return result;
 }
 
+static Vector3 mesh_normal(const Vector3 &pos)
+{
+    // Scale before normalizing so real_t length-squared stays in range.
+    const real_t scale = std::max({std::abs(pos.x), std::abs(pos.y), std::abs(pos.z)});
+    return (pos / scale).normalized();
+}
+
 /// <summary>
 /// Builds and returns a complete ArrayMesh for the entire sphere, with vertex positions,
 /// normals, and UV2 data (tile index in UV2.x). Also returns per-tile vertex counts and indices
@@ -345,9 +353,7 @@ Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
                 Vector3 pos = boundary[order[v]];
                 int vi = globalVertexIndex++;
                 vertices[vi] = pos;
-                // Scale before normalizing so real_t length-squared stays in range.
-                const real_t scale = std::max({std::abs(pos.x), std::abs(pos.y), std::abs(pos.z)});
-                normals[vi] = (pos / scale).normalized();
+                normals[vi] = mesh_normal(pos);
                 uv2s[vi] = tileUV;
                 if (vertex_indices) (*vertex_indices)[base + v] = vi;
             }
@@ -364,7 +370,88 @@ Array NativeHexasphere::make_mesh_arrays(int first_tile, int tile_count,
     return arrays;
 }
 
+Array NativeHexasphere::make_indexed_mesh_arrays(int first_tile, int tile_count) const
+{
+    const auto &tiles = _hexasphere->get_tiles();
+    const int end_tile = first_tile + tile_count;
+    int vertex_count = 0;
+    int index_count = 0;
+    for (int t = first_tile; t < end_tile; t++)
+    {
+        const Tile &tile = tiles[t];
+        if (tile.get_face_count() == 0) continue;
+        vertex_count += tile.get_boundary_count();
+        index_count += tile.get_face_count() * 3;
+    }
+
+    PackedVector3Array vertices;
+    PackedVector3Array normals;
+    PackedVector2Array uv2s;
+    PackedInt32Array indices;
+    if (vertex_count == 0 || vertices.resize(vertex_count) != OK || normals.resize(vertex_count) != OK
+        || uv2s.resize(vertex_count) != OK || indices.resize(index_count) != OK)
+        return Array();
+
+    Vector3 *vertex_data = vertices.ptrw();
+    Vector3 *normal_data = normals.ptrw();
+    Vector2 *uv_data = uv2s.ptrw();
+    int32_t *index_data = indices.ptrw();
+    int vertex_offset = 0;
+    int index_offset = 0;
+    for (int t = first_tile; t < end_tile; t++)
+    {
+        const Tile &tile = tiles[t];
+        const int face_count = tile.get_face_count();
+        if (face_count == 0) continue;
+        const auto &boundary = tile.get_boundary_points();
+        const auto *faces = tile.get_face_indices();
+
+        // Share vertices only within a tile. Adjacent tiles carry distinct UV2 IDs.
+        for (int v = 0; v < tile.get_boundary_count(); v++)
+        {
+            const int dst = vertex_offset + v;
+            vertex_data[dst] = boundary[v];
+            normal_data[dst] = mesh_normal(boundary[v]);
+            uv_data[dst] = Vector2(t, 0.0f);
+        }
+        for (int f = 0; f < face_count; f++)
+        {
+            // Use the same clockwise winding as the expanded surface.
+            index_data[index_offset++] = vertex_offset + faces[f][0];
+            index_data[index_offset++] = vertex_offset + faces[f][2];
+            index_data[index_offset++] = vertex_offset + faces[f][1];
+        }
+        vertex_offset += tile.get_boundary_count();
+    }
+
+    Array arrays;
+    if (arrays.resize(Mesh::ARRAY_MAX) != OK)
+        return Array();
+    arrays[Mesh::ARRAY_VERTEX] = vertices;
+    arrays[Mesh::ARRAY_NORMAL] = normals;
+    arrays[Mesh::ARRAY_TEX_UV2] = uv2s;
+    arrays[Mesh::ARRAY_INDEX] = indices;
+    return arrays;
+}
+
 int NativeHexasphere::prepare_mesh_chunks(int tiles_per_chunk)
+{
+    return prepare_mesh_chunk_arrays(tiles_per_chunk, false);
+}
+
+int NativeHexasphere::prepare_indexed_mesh_chunks(int tiles_per_chunk)
+{
+    try
+    {
+        return prepare_mesh_chunk_arrays(tiles_per_chunk, true);
+    }
+    catch (...)
+    {
+        return -1;
+    }
+}
+
+int NativeHexasphere::prepare_mesh_chunk_arrays(int tiles_per_chunk, bool indexed)
 {
     clear_mesh_preparation();
     const int count = get_tile_count();
@@ -376,7 +463,9 @@ int NativeHexasphere::prepare_mesh_chunks(int tiles_per_chunk)
     for (int first = 0; first < count;)
     {
         const int size = std::min(tiles_per_chunk, count - first);
-        chunks.push_back(make_mesh_arrays(first, size));
+        Array arrays = indexed ? make_indexed_mesh_arrays(first, size) : make_mesh_arrays(first, size);
+        if (arrays.is_empty()) return -1;
+        chunks.push_back(std::move(arrays));
         first += size;
     }
     _prepared_mesh_chunks = std::move(chunks);

@@ -81,9 +81,11 @@ public partial class HexasphereNode : Node3D
 
 
 
+    private const string DefaultColorsShaderPath = "res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_colors.gdshader";
+
     [ExportGroup("Shaders")]
     /// <summary>Shader used for rendering tile colors.</summary>
-    [Export] public Shader ColorsShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_colors.gdshader");
+    [Export] public Shader ColorsShader = GD.Load<Shader>(DefaultColorsShaderPath);
     /// <summary>Shader used for rendering tile borders.</summary>
     [Export] public Shader BordersShader = GD.Load<Shader>("res://addons/hexasphere_generator/scripts/hexasphere_node/shaders/hexasphere_borders.gdshader");
 

@@ -222,6 +222,7 @@ public partial class HexasphereNode
         GenerationStage = HexasphereGenerationStage.NotStarted;
         CompletedGenerationStages = 0;
         GenerationRequest request;
+        bool useIndexedMesh;
         try
         {
             if (!IsUsableVisualController(VisualController))
@@ -247,6 +248,11 @@ public partial class HexasphereNode
                 throw new ArgumentOutOfRangeException(nameof(MeshUploadBudgetMilliseconds), "Supply a finite nonnegative upload budget and positive tiles per surface.");
             if (settings.ColorsShader == null || (settings.Borders && settings.BordersShader == null))
                 throw new InvalidOperationException("Supply the color shader and, when borders are enabled, the border shader.");
+            // Custom shaders and ApplyGenerated overrides may depend on the expanded vertex order.
+            useIndexedMesh = settings.ColorsShader.ResourcePath == DefaultColorsShaderPath
+                && VisualController.GetType().GetMethod(nameof(HexasphereVisualController.ApplyGenerated),
+                    new[] { typeof(ArrayMesh), typeof(bool), typeof(Shader), typeof(Shader) })?.DeclaringType
+                    == typeof(HexasphereVisualController);
             lock (_generationLock)
                 _activeGeneration = request = new GenerationRequest(++_generationSerial, settings) { Controller = VisualController };
         }
@@ -275,7 +281,13 @@ public partial class HexasphereNode
                 // Run after the complete custom hook, including custom published results.
                 if (request.Settings.MeshUploadBudgetMilliseconds > 0
                     && request.Centers.Length > request.Settings.MeshUploadTilesPerSurface)
-                    request.MeshChunksRemaining = request.Native.PrepareMeshChunks(request.Settings.MeshUploadTilesPerSurface);
+                {
+                    int tilesPerSurface = request.Settings.MeshUploadTilesPerSurface;
+                    if (useIndexedMesh)
+                        request.MeshChunksRemaining = request.Native.PrepareIndexedMeshChunks(tilesPerSurface);
+                    if (request.MeshChunksRemaining == 0)
+                        request.MeshChunksRemaining = request.Native.PrepareMeshChunks(tilesPerSurface);
+                }
                 if (request.MeshChunksRemaining == 0) request.Native.PrepareMesh();
                 request.Token.ThrowIfCancellationRequested();
                 request.SpatialIndex = PrepareSpatialIndex(request.Centers, request.Token);
