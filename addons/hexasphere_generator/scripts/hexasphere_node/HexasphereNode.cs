@@ -100,6 +100,7 @@ public partial class HexasphereNode : Node3D
     protected ICellData[] _cellDatas;
     protected NativeHexasphere _hexasphere;
     protected Color[] _tileColors;
+    private Color[] _denseTileColors;
     private int _selectedTileIndex = -1;
     private int _hoveredTileIndex = -1;
     private long _interactionRevision;
@@ -123,17 +124,12 @@ public partial class HexasphereNode : Node3D
     /// <summary>Returns true once the planet has been fully generated and is ready for interaction.</summary>
     public bool IsReady => _planetReady;
     /// <summary>Total number of tiles on the generated planet.</summary>
-    public int TileCount => _cellDatas?.Length ?? 0;
+    public int TileCount => _denseTileColors?.Length ?? _cellDatas?.Length ?? 0;
 
 
     virtual protected ICellData[] CreateCellData(int count, Vector3[] centers)
     {
-        using var rng = new RandomNumberGenerator();
-        int seed = CurrentGenerationSettings?.Seed ?? GenerationSeed;
-        if (seed >= 0)
-            rng.Seed = (ulong)seed;
-        else
-            rng.Randomize();
+        using var rng = CreateColorRandom(CurrentGenerationSettings?.Seed ?? GenerationSeed);
         var data = new HexCellData[count];
         for (int i = 0; i < data.Length; i++)
         {
@@ -147,6 +143,15 @@ public partial class HexasphereNode : Node3D
         return data;
     }
 
+    private static RandomNumberGenerator CreateColorRandom(int seed)
+    {
+        var rng = new RandomNumberGenerator();
+        if (seed >= 0)
+            rng.Seed = (ulong)seed;
+        else
+            rng.Randomize();
+        return rng;
+    }
 
     public override void _Ready()
     {
@@ -183,6 +188,7 @@ public partial class HexasphereNode : Node3D
         _hexasphere = null;
         _cellDatas = null;
         _tileColors = null;
+        _denseTileColors = null;
         _tileDirs = null;
         _spatialBuckets = null;
         _compactSpatialBuckets = null;
@@ -255,7 +261,7 @@ virtual protected void OnShaderReady()
         if (UvProjector.IsProjectionOpen && !UvProjector.IsOwnedBy(this)) return false;
         var source = _hexasphere;
         long revision = _interactionRevision;
-        UvProjector.BuildMap2D(source, _tileColors, UvProjector.MapSize);
+        UvProjector.BuildMap2D(source, GetUvColors(), UvProjector.MapSize);
         return InteractionUnchanged(revision, source) && GodotObject.IsInstanceValid(UvProjector)
             && UvProjector.IsInsideTree() && UvProjector.IsProjectionReady();
     }
@@ -760,7 +766,13 @@ virtual protected void OnShaderReady()
     /// </summary>
     public void SetTileColor(int tileIndex, Color color)
     {
-        if (_cellDatas == null || tileIndex < 0 || tileIndex >= _cellDatas.Length) return;
+        if (tileIndex < 0 || tileIndex >= TileCount) return;
+        if (_denseTileColors != null)
+        {
+            _denseTileColors[tileIndex] = color;
+            RefreshDenseTileColors();
+            return;
+        }
         if (_cellDatas[tileIndex] is not HexCellData hex) return;
         hex.color = color;
         RefreshTileColors();
@@ -770,12 +782,38 @@ virtual protected void OnShaderReady()
     public void SetAllTileColors(Color[] colors)
     {
         if (colors == null) throw new System.ArgumentNullException(nameof(colors));
+        if (_denseTileColors != null)
+        {
+            System.Array.Copy(colors, _denseTileColors, Mathf.Min(colors.Length, _denseTileColors.Length));
+            RefreshDenseTileColors();
+            return;
+        }
         if (_cellDatas == null) return;
         int count = Mathf.Min(colors.Length, _cellDatas.Length);
         for (int i = 0; i < count; i++)
             if (_cellDatas[i] is HexCellData hex)
                 hex.color = colors[i];
         RefreshTileColors();
+    }
+
+    private Color[] GetUvColors()
+    {
+        // Keep UV's cached palette independent of model edits made while it is closed.
+        if (_denseTileColors != null && ReferenceEquals(_tileColors, _denseTileColors))
+            _tileColors = (Color[])_denseTileColors.Clone();
+        return _tileColors;
+    }
+
+    private void RefreshDenseTileColors()
+    {
+        if (!GodotObject.IsInstanceValid(VisualController)) return;
+        var palette = _denseTileColors;
+        var source = _hexasphere;
+        long revision = _interactionRevision;
+        _tileColors = palette;
+        VisualController.DrawPalette(palette);
+        if (InteractionUnchanged(revision, source) && ReferenceEquals(_tileColors, palette) && OwnsActiveUv())
+            UvProjector.UpdateColors(source, GetUvColors());
     }
 
     private void RefreshTileColors()
@@ -804,12 +842,12 @@ virtual protected void OnShaderReady()
     /// <returns>The tile color, or Colors.Black if unavailable.</returns>
     public Color GetTileColor(int tileIndex)
     {
-        if (_cellDatas == null || tileIndex < 0 || tileIndex >= _cellDatas.Length) return Colors.Black;
-        return VisualController.GetColor(_cellDatas[tileIndex]);
+        if (tileIndex < 0 || tileIndex >= TileCount) return Colors.Black;
+        return _denseTileColors != null ? _denseTileColors[tileIndex] : VisualController.GetColor(_cellDatas[tileIndex]);
     }
 
     /// <summary>Returns the total number of tiles, or 0 if not yet generated.</summary>
-    public int GetTileCount() => _cellDatas?.Length ?? 0;
+    public int GetTileCount() => TileCount;
 
     /// <summary>
     /// Gets the center position of a specific tile in local space.

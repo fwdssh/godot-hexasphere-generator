@@ -68,6 +68,8 @@ public partial class HexasphereNode
         public NativeHexasphere Native;
         public Vector3[] Centers;
         public ICellData[] Cells;
+        public bool UseDenseColors;
+        public Color[] DenseColors;
         public PreparedSpatialIndex SpatialIndex;
         public PlanetBorderRenderer.PreparedGeometry Borders;
         public int MeshChunksRemaining;
@@ -194,7 +196,7 @@ public partial class HexasphereNode
                     request.UploadSource = null;
                     request.MeshStream?.Dispose(); request.MeshStream = null;
                     request.Native?.Dispose(); request.Native = null;
-                    request.Centers = null; request.Cells = null;
+                    request.Centers = null; request.Cells = null; request.DenseColors = null;
                     request.SpatialIndex = null;
                     request.Borders?.Dispose(); request.Borders = null;
                     request.PreparedColors = null;
@@ -256,8 +258,16 @@ public partial class HexasphereNode
                 && VisualController.GetType().GetMethod(nameof(HexasphereVisualController.ApplyGenerated),
                     new[] { typeof(ArrayMesh), typeof(bool), typeof(Shader), typeof(Shader) })?.DeclaringType
                     == typeof(HexasphereVisualController);
+            // Custom nodes, visuals and projectors can observe the cell objects or the palette.
+            bool useDenseColors = GetType() == typeof(HexasphereNode)
+                && VisualController.GetType() == typeof(HexasphereVisualController)
+                && (UvProjector == null || UvProjector.GetType() == typeof(HexasphereProjectorController));
             lock (_generationLock)
-                _activeGeneration = request = new GenerationRequest(++_generationSerial, settings) { Controller = VisualController };
+                _activeGeneration = request = new GenerationRequest(++_generationSerial, settings)
+                {
+                    Controller = VisualController,
+                    UseDenseColors = useDenseColors
+                };
         }
         catch (Exception error) { FailGeneration(null, error); return; }
 
@@ -279,7 +289,7 @@ public partial class HexasphereNode
                 request.Native = new NativeHexasphere();
                 GenerateInBackground(request.Native);
                 request.Token.ThrowIfCancellationRequested();
-                if (request.Centers == null || request.Cells == null)
+                if (request.Centers == null || (request.Cells == null && request.DenseColors == null))
                     throw new InvalidOperationException("GenerateInBackground overrides must call base or PublishGenerationResult.");
                 // Prepare request-owned CPU data without touching live node/controller state.
                 // Run after the complete custom hook, including custom published results.
@@ -332,7 +342,7 @@ public partial class HexasphereNode
                 {
                     request.MeshStream?.Dispose(); request.MeshStream = null;
                     request.Native?.Dispose(); request.Native = null;
-                    request.Centers = null; request.Cells = null;
+                    request.Centers = null; request.Cells = null; request.DenseColors = null;
                     request.SpatialIndex = null;
                     request.Borders?.Dispose(); request.Borders = null;
                 }
@@ -360,11 +370,31 @@ public partial class HexasphereNode
         lock (_generationLock)
             if (!_generationShuttingDown && _activeGeneration == request)
                 _generationMessages.Enqueue(new GenerationMessage(request, HexasphereGenerationStage.CreatingCellData));
+        if (request.UseDenseColors)
+        {
+            if (count <= 0 || request.Centers.Length != count)
+                throw new InvalidOperationException("Generate exactly one center per tile.");
+            request.DenseColors = CreateDefaultPalette(count, settings.Seed, request.Token);
+            return;
+        }
+
         var cells = CreateCellData(count, request.Centers);
         request.Token.ThrowIfCancellationRequested();
         if (cells == null || cells.Length != count)
             throw new InvalidOperationException($"CreateCellData must return exactly {count} cells.");
         PublishGenerationResult(native, request.Centers, cells);
+    }
+
+    private static Color[] CreateDefaultPalette(int count, int seed, CancellationToken token)
+    {
+        using var rng = CreateColorRandom(seed);
+        var colors = new Color[count];
+        for (int i = 0; i < colors.Length; i++)
+        {
+            if ((i & 1023) == 0) token.ThrowIfCancellationRequested();
+            colors[i] = Color.FromHsv(rng.Randf(), 0.6f, 0.85f);
+        }
+        return colors;
     }
 
     /// <summary>
@@ -488,6 +518,8 @@ public partial class HexasphereNode
         _hexasphere = _pendingHexasphere;
         _generatedRadius = request.Settings.Radius;
         _cellDatas = _pendingCellDatas;
+        _denseTileColors = request.DenseColors;
+        request.DenseColors = null;
         var centers = _pendingCenters;
         _pendingHexasphere = null;
         _pendingCenters = null;
@@ -560,11 +592,11 @@ public partial class HexasphereNode
             // Preserve synchronous base-call semantics inside custom ready/draw
             // hooks. GetColor remains virtual and runs on the main thread.
             if (request.Settings.MeshUploadBudgetMilliseconds > 0
-                && _cellDatas.Length > request.Settings.MeshUploadTilesPerSurface
+                && TileCount > request.Settings.MeshUploadTilesPerSurface
                 && GetType().GetMethod(nameof(OnShaderReady), System.Reflection.BindingFlags.Instance
                     | System.Reflection.BindingFlags.NonPublic, null, Type.EmptyTypes, null)?.DeclaringType == typeof(HexasphereNode)
                 && VisualController.CanPrepareColorsIncrementally)
-                request.PreparedColors = new Color[_cellDatas.Length];
+                request.PreparedColors = _denseTileColors ?? new Color[TileCount];
             else FinishGenerationVisuals(request);
         }
         catch (Exception error) { FailGeneration(request, error); }
@@ -589,7 +621,7 @@ public partial class HexasphereNode
             int end = request.PreparedColorCount + count;
             for (int i = request.PreparedColorCount; i < end; i++)
             {
-                Color color = VisualController.GetColor(_cellDatas[i]);
+                Color color = _denseTileColors != null ? _denseTileColors[i] : VisualController.GetColor(_cellDatas[i]);
                 // A custom color hook may cancel, restart or remove the node.
                 if (!IsCurrentGeneration(request)) return;
                 request.PreparedColors[i] = color;
@@ -635,8 +667,13 @@ public partial class HexasphereNode
     {
         var request = _activeGeneration;
         if (!IsCurrentGeneration(request)) return;
-        if (request.PreparedColors != null) VisualController.UsePreparedColors(_cellDatas);
-        VisualController.DrawColors(_cellDatas);
+        if (_denseTileColors != null)
+            VisualController.DrawPalette(_denseTileColors, prepared: request.PreparedColors != null);
+        else
+        {
+            if (request.PreparedColors != null) VisualController.UsePreparedColors(_cellDatas);
+            VisualController.DrawColors(_cellDatas);
+        }
         if (!IsCurrentGeneration(request)) return;
         VisualController.SetEmissive(request.Settings.Emissive);
         if (!IsCurrentGeneration(request)) return;
@@ -645,6 +682,8 @@ public partial class HexasphereNode
             _tileColors = request.PreparedColors;
             request.PreparedColors = null;
         }
+        else if (_denseTileColors != null)
+            _tileColors = _denseTileColors;
         else
         {
             _tileColors = new Color[_cellDatas.Length];
@@ -666,7 +705,7 @@ public partial class HexasphereNode
         _planetReady = true;
         SetGenerationState(HexasphereGenerationState.Ready);
         if (!IsCurrentGeneration(request)) return;
-        EmitSignal(SignalName.PlanetGenerated, _cellDatas.Length);
+        EmitSignal(SignalName.PlanetGenerated, TileCount);
         if (_activeGeneration == request) _activeGeneration = null;
     }
 

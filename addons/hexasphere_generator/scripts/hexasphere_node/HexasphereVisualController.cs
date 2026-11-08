@@ -266,9 +266,7 @@ public partial class HexasphereVisualController : Node3D
         if (_tileColorImage == null || cellDatas == null || cellDatas.Length == 0) return;
 
         int safeLength = Mathf.Min(cellDatas.Length, _tileCount);
-        int requiredSize = _texWidth * _texHeight * 4;
-        if (_colorBuffer == null || _colorBuffer.Length != requiredSize)
-            _colorBuffer = new byte[requiredSize];
+        EnsureColorBuffer();
         bool prepared = ReferenceEquals(_preparedColorCells, cellDatas);
         _preparedColorCells = null;
         for (int i = 0; !prepared && i < safeLength; i++)
@@ -276,6 +274,29 @@ public partial class HexasphereVisualController : Node3D
             Color c = GetColor(cellDatas[i]);
             PrepareTileColor(i, c);
         }
+        UploadColorBuffer();
+    }
+
+    internal void DrawPalette(Color[] colors, bool prepared = false)
+    {
+        if (_tileColorImage == null || colors.Length == 0) return;
+
+        EnsureColorBuffer();
+        int count = Mathf.Min(colors.Length, _tileCount);
+        for (int i = 0; !prepared && i < count; i++)
+            PrepareTileColor(i, colors[i]);
+        UploadColorBuffer();
+    }
+
+    private void EnsureColorBuffer()
+    {
+        int requiredSize = _texWidth * _texHeight * 4;
+        if (_colorBuffer == null || _colorBuffer.Length != requiredSize)
+            _colorBuffer = new byte[requiredSize];
+    }
+
+    private void UploadColorBuffer()
+    {
         using var img = Image.CreateFromData(_texWidth, _texHeight, false, Image.Format.Rgba8, _colorBuffer);
         _tileColorTexture.Update(img);
     }
