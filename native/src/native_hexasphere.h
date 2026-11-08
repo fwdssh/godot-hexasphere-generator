@@ -23,7 +23,9 @@ class NativeHexasphere : public RefCounted
     GDCLASS(NativeHexasphere, RefCounted)
 
 private:
+    struct BorderPlan;
     std::unique_ptr<Hexasphere> _hexasphere;
+    std::unique_ptr<BorderPlan> _border_stream;
     Array _prepared_mesh_arrays;
     PackedInt32Array _prepared_tile_vertex_counts;
     PackedInt32Array _prepared_tile_vertex_indices;
@@ -32,7 +34,12 @@ private:
     int _next_mesh_chunk = 0;
 
     void clear_mesh_preparation();
+    std::unique_ptr<BorderPlan> make_border_plan(int vertices_per_surface) const;
+    Array make_next_border_surface(BorderPlan &plan) const;
     Variant prepare_border_surfaces(int vertices_per_surface) const;
+    int begin_border_stream(int vertices_per_surface);
+    Array next_border_stream_surface();
+    Array make_streamed_mesh_surface(int first_tile, int tile_count, bool indexed) const;
     int prepare_indexed_mesh_chunks(int tiles_per_chunk);
     int prepare_mesh_chunk_arrays(int tiles_per_chunk, bool indexed);
     Array make_indexed_mesh_arrays(int first_tile, int tile_count) const;

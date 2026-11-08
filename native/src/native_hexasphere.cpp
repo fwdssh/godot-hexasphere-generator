@@ -11,6 +11,18 @@
 #include <exception>
 
 
+struct NativeHexasphere::BorderPlan
+{
+    // Each edge uses three bits for its neighbour's slot in the tile.
+    std::vector<uint32_t> edge_neighbours;
+    int chunk_size = 0;
+    int remaining = 0;
+    int tile = 0;
+    int edge = 0;
+
+    int surface_count() const { return (remaining - 1) / chunk_size + 1; }
+};
+
 /// <summary>
 /// Default constructor. Call generate() to initialize the sphere data.
 /// </summary>
@@ -32,6 +44,9 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("get_build_data"), &NativeHexasphere::get_build_data);
     ClassDB::bind_method(D_METHOD("get_border_data"), &NativeHexasphere::get_border_data);
     ClassDB::bind_method(D_METHOD("_prepare_border_surfaces", "vertices_per_surface"), &NativeHexasphere::prepare_border_surfaces);
+    ClassDB::bind_method(D_METHOD("_begin_border_stream", "vertices_per_surface"), &NativeHexasphere::begin_border_stream);
+    ClassDB::bind_method(D_METHOD("_next_border_stream_surface"), &NativeHexasphere::next_border_stream_surface);
+    ClassDB::bind_method(D_METHOD("_make_streamed_mesh_surface", "first_tile", "tile_count", "indexed"), &NativeHexasphere::make_streamed_mesh_surface);
     ClassDB::bind_method(D_METHOD("build_mesh"), &NativeHexasphere::build_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh"), &NativeHexasphere::prepare_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh_chunks", "tiles_per_chunk"), &NativeHexasphere::prepare_mesh_chunks);
@@ -57,6 +72,7 @@ bool NativeHexasphere::generate(double radius, int64_t divisions, double hexSize
     {
         auto replacement = std::make_unique<Hexasphere>(core_radius, static_cast<int>(divisions), static_cast<float>(hexSize));
         clear_mesh_preparation();
+        _border_stream.reset();
         _hexasphere = std::move(replacement);
         return true;
     }
@@ -315,103 +331,154 @@ static int find_shared_border(const Tile &tile, const Tile &neighbour, double to
     return edge;
 }
 
+std::unique_ptr<NativeHexasphere::BorderPlan> NativeHexasphere::make_border_plan(int vertices_per_surface) const
+{
+    if (!_hexasphere || vertices_per_surface <= 0) return nullptr;
+    const auto &tiles = _hexasphere->get_tiles();
+    const bool shared = _hexasphere->has_shared_tile_edges();
+    int edge_count = 0;
+    double scale = 0.0;
+    for (const Tile &tile : tiles)
+    {
+        const int count = tile.get_boundary_count();
+        edge_count += count;
+        if (!shared) continue;
+        if (count < 3 || count != tile.get_neighbour_count()) return nullptr;
+        for (int p = 0; p < count; ++p)
+        {
+            const Vector3 &pos = tile.get_boundary_points()[p];
+            scale = std::max({scale, std::abs(double(pos.x)), std::abs(double(pos.y)), std::abs(double(pos.z))});
+        }
+    }
+    if (edge_count == 0 || (shared && (edge_count % 2 != 0 || scale == 0.0))) return nullptr;
+
+    auto plan = std::make_unique<BorderPlan>();
+    plan->remaining = shared ? edge_count : edge_count * 2;
+    const int min_size = (plan->remaining - 1) / RenderingServer::MAX_MESH_SURFACES + 1;
+    const int requested = std::min(plan->remaining, std::max(min_size, vertices_per_surface));
+    plan->chunk_size = requested + requested % 2;
+
+    if (!shared) return plan;
+    // Validate the full topology before publishing any surfaces. Unusual geometry
+    // can still fall back to the compatibility renderer without a partial upload.
+    const double tolerance = scale * 0.000001;
+    plan->edge_neighbours.resize(tiles.size());
+    int owned_edges = 0;
+    for (int t = 0; t < static_cast<int>(tiles.size()); ++t)
+    {
+        const Tile &tile = tiles[t];
+        const auto *neighbours = tile.get_neighbours_data();
+        uint32_t matched = 0;
+        uint32_t packed = 0;
+        for (int n = 0; n < tile.get_neighbour_count(); ++n)
+        {
+            const int other = neighbours[n];
+            const int edge = find_shared_border(tile, tiles[other], tolerance);
+            if (edge < 0 || (matched & (1u << edge)) != 0) return nullptr;
+            matched |= 1u << edge;
+            packed |= uint32_t(n) << (edge * 3);
+            if (other >= t) ++owned_edges;
+        }
+        plan->edge_neighbours[t] = packed;
+    }
+    return owned_edges * 2 == plan->remaining ? std::move(plan) : nullptr;
+}
+
+Array NativeHexasphere::make_next_border_surface(BorderPlan &plan) const
+{
+    const auto &tiles = _hexasphere->get_tiles();
+    const bool shared = !plan.edge_neighbours.empty();
+    const int size = std::min(plan.remaining, plan.chunk_size);
+    PackedVector3Array positions;
+    PackedVector2Array owners;
+    Array arrays;
+    if (positions.resize(size) != OK || owners.resize(size) != OK || arrays.resize(Mesh::ARRAY_MAX) != OK)
+        return Array();
+
+    Vector3 *position_data = positions.ptrw();
+    Vector2 *owner_data = owners.ptrw();
+    int offset = 0;
+    // Keep the original tile/edge order and the first owner's exact endpoints.
+    while (offset < size && plan.tile < static_cast<int>(tiles.size()))
+    {
+        const Tile &tile = tiles[plan.tile];
+        const int count = tile.get_boundary_count();
+        const auto &points = tile.get_boundary_points();
+        while (plan.edge < count && offset < size)
+        {
+            const int edge = plan.edge++;
+            const int slot = shared ? (plan.edge_neighbours[plan.tile] >> (edge * 3)) & 7u : 0;
+            const int other = shared ? tile.get_neighbours_data()[slot] : -1;
+            if (shared && other < plan.tile) continue;
+            position_data[offset] = points[edge] * 1.0001f;
+            position_data[offset + 1] = points[(edge + 1) % count] * 1.0001f;
+            owner_data[offset] = Vector2(plan.tile, other);
+            owner_data[offset + 1] = owner_data[offset];
+            offset += 2;
+        }
+        if (plan.edge == count)
+        {
+            ++plan.tile;
+            plan.edge = 0;
+        }
+    }
+    if (offset != size) return Array();
+    arrays[Mesh::ARRAY_VERTEX] = positions;
+    arrays[Mesh::ARRAY_TEX_UV2] = owners;
+    plan.remaining -= size;
+    return arrays;
+}
+
 Variant NativeHexasphere::prepare_border_surfaces(int vertices_per_surface) const
 {
-    if (!_hexasphere || vertices_per_surface <= 0) return Array();
     try
     {
-        const auto &tiles = _hexasphere->get_tiles();
-        const bool shared = _hexasphere->has_shared_tile_edges();
-        int edge_count = 0;
-        double scale = 0.0;
-        for (const Tile &tile : tiles)
-        {
-            const int count = tile.get_boundary_count();
-            edge_count += count;
-            if (!shared) continue;
-            if (count < 3 || count != tile.get_neighbour_count()) return Array();
-            for (int p = 0; p < count; ++p)
-            {
-                const Vector3 &pos = tile.get_boundary_points()[p];
-                scale = std::max({scale, std::abs(double(pos.x)), std::abs(double(pos.y)), std::abs(double(pos.z))});
-            }
-        }
-        if (edge_count == 0 || (shared && (edge_count % 2 != 0 || scale == 0.0))) return Array();
-
-        const int total_vertices = shared ? edge_count : edge_count * 2;
-        const int min_size = (total_vertices - 1) / RenderingServer::MAX_MESH_SURFACES + 1;
-        const int64_t requested = std::max(min_size, vertices_per_surface);
-        const int64_t chunk_size = requested + requested % 2;
-        const int surface_count = static_cast<int>((total_vertices - 1) / chunk_size + 1);
+        auto plan = make_border_plan(vertices_per_surface);
+        if (!plan) return Array();
         Array surfaces;
-        if (surfaces.resize(surface_count) != OK) return Variant();
-
-        // Keep the original tile/edge order and use the first owner's endpoints.
-        // If the topology does not identify every shared edge, use the compatibility path.
-        const double tolerance = scale * 0.000001;
-        int surface_index = 0;
-        int remaining = total_vertices;
-        int offset = 0;
-        PackedVector3Array positions;
-        PackedVector2Array owners;
-        Vector3 *position_data = nullptr;
-        Vector2 *owner_data = nullptr;
-        for (int t = 0; t < static_cast<int>(tiles.size()); ++t)
+        if (surfaces.resize(plan->surface_count()) != OK) return Variant();
+        for (int i = 0; plan->remaining > 0; ++i)
         {
-            const Tile &tile = tiles[t];
-            const auto &points = tile.get_boundary_points();
-            const int count = tile.get_boundary_count();
-            std::array<int, 6> edge_owners;
-            edge_owners.fill(-1);
-            if (shared)
-            {
-                const auto *neighbours = tile.get_neighbours_data();
-                for (int n = 0; n < count; ++n)
-                {
-                    const int other = neighbours[n];
-                    const int edge = find_shared_border(tile, tiles[other], tolerance);
-                    if (edge < 0 || edge_owners[edge] >= 0) return Array();
-                    edge_owners[edge] = other;
-                }
-            }
-
-            for (int p = 0; p < count; ++p)
-            {
-                const int other = edge_owners[p];
-                if (shared && other < t) continue;
-                if (remaining == 0) return Array();
-                if (offset == 0)
-                {
-                    const int size = static_cast<int>(std::min<int64_t>(remaining, chunk_size));
-                    if (positions.resize(size) != OK || owners.resize(size) != OK) return Variant();
-                    position_data = positions.ptrw();
-                    owner_data = owners.ptrw();
-                }
-                position_data[offset] = points[p] * 1.0001f;
-                position_data[offset + 1] = points[(p + 1) % count] * 1.0001f;
-                owner_data[offset] = Vector2(t, other);
-                owner_data[offset + 1] = owner_data[offset];
-                offset += 2;
-                remaining -= 2;
-                if (offset == positions.size())
-                {
-                    Array arrays;
-                    if (arrays.resize(Mesh::ARRAY_MAX) != OK) return Variant();
-                    arrays[Mesh::ARRAY_VERTEX] = positions;
-                    arrays[Mesh::ARRAY_TEX_UV2] = owners;
-                    surfaces[surface_index++] = arrays;
-                    positions = PackedVector3Array();
-                    owners = PackedVector2Array();
-                    offset = 0;
-                }
-            }
+            Array surface = make_next_border_surface(*plan);
+            if (surface.is_empty()) return Variant();
+            surfaces[i] = surface;
         }
-        return remaining == 0 ? surfaces : Array();
+        return surfaces;
     }
     catch (...)
     {
         return Variant();
     }
+}
+
+int NativeHexasphere::begin_border_stream(int vertices_per_surface)
+{
+    try
+    {
+        auto plan = make_border_plan(vertices_per_surface);
+        if (!plan || plan->surface_count() <= 1) return 0;
+        const int count = plan->surface_count();
+        _border_stream = std::move(plan);
+        return count;
+    }
+    catch (...)
+    {
+        return -1;
+    }
+}
+
+Array NativeHexasphere::next_border_stream_surface()
+{
+    if (!_border_stream) return Array();
+    Array surface = make_next_border_surface(*_border_stream);
+    if (_border_stream->remaining == 0 || surface.is_empty()) _border_stream.reset();
+    return surface;
+}
+
+Array NativeHexasphere::make_streamed_mesh_surface(int first_tile, int tile_count, bool indexed) const
+{
+    if (first_tile < 0 || tile_count <= 0 || first_tile > get_tile_count() - tile_count) return Array();
+    return indexed ? make_indexed_mesh_arrays(first_tile, tile_count) : make_mesh_arrays(first_tile, tile_count);
 }
 
 static Vector3 mesh_normal(const Vector3 &pos)

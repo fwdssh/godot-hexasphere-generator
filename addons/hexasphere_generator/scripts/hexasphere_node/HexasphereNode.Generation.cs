@@ -71,6 +71,7 @@ public partial class HexasphereNode
         public PreparedSpatialIndex SpatialIndex;
         public PlanetBorderRenderer.PreparedGeometry Borders;
         public int MeshChunksRemaining;
+        public SurfaceStream MeshStream;
         public ArrayMesh UploadMesh;
         public NativeHexasphere UploadSource;
         public long UploadVersion;
@@ -191,6 +192,7 @@ public partial class HexasphereNode
                 {
                     request.UploadMesh?.Dispose(); request.UploadMesh = null;
                     request.UploadSource = null;
+                    request.MeshStream?.Dispose(); request.MeshStream = null;
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
                     request.SpatialIndex = null;
@@ -273,6 +275,7 @@ public partial class HexasphereNode
                 await previousTask.ConfigureAwait(false);
                 request.Token.ThrowIfCancellationRequested();
                 _workerGeneration.Value = request;
+                using var stopQueuedSurfaces = request.Token.Register(() => request.MeshStream?.Dispose());
                 request.Native = new NativeHexasphere();
                 GenerateInBackground(request.Native);
                 request.Token.ThrowIfCancellationRequested();
@@ -284,10 +287,20 @@ public partial class HexasphereNode
                     && request.Centers.Length > request.Settings.MeshUploadTilesPerSurface)
                 {
                     int tilesPerSurface = request.Settings.MeshUploadTilesPerSurface;
-                    if (useIndexedMesh)
-                        request.MeshChunksRemaining = request.Native.PrepareIndexedMeshChunks(tilesPerSurface);
-                    if (request.MeshChunksRemaining == 0)
-                        request.MeshChunksRemaining = request.Native.PrepareMeshChunks(tilesPerSurface);
+                    request.MeshStream = request.Native.CreateMeshStream(request.Centers.Length, tilesPerSurface, useIndexedMesh);
+                    if (request.MeshStream != null)
+                    {
+                        request.MeshChunksRemaining = request.MeshStream.Count;
+                        request.Token.ThrowIfCancellationRequested();
+                        request.MeshStream.Start();
+                    }
+                    else
+                    {
+                        if (useIndexedMesh)
+                            request.MeshChunksRemaining = request.Native.PrepareIndexedMeshChunks(tilesPerSurface);
+                        if (request.MeshChunksRemaining == 0)
+                            request.MeshChunksRemaining = request.Native.PrepareMeshChunks(tilesPerSurface);
+                    }
                 }
                 if (request.MeshChunksRemaining == 0) request.Native.PrepareMesh();
                 request.Token.ThrowIfCancellationRequested();
@@ -295,7 +308,8 @@ public partial class HexasphereNode
                 if (request.Settings.Borders)
                     request.Borders = PlanetBorderRenderer.PrepareForUpload(request.Native, request.Token,
                         request.Settings.MeshUploadBudgetMilliseconds > 0
-                            ? (int)Math.Min((long)request.Settings.MeshUploadTilesPerSurface * 6, int.MaxValue) : int.MaxValue);
+                            ? (int)Math.Min((long)request.Settings.MeshUploadTilesPerSurface * 6, int.MaxValue) : int.MaxValue,
+                        stream: request.Settings.MeshUploadBudgetMilliseconds > 0);
                 request.Token.ThrowIfCancellationRequested();
                 lock (_generationLock)
                 {
@@ -316,6 +330,7 @@ public partial class HexasphereNode
                 _workerGeneration.Value = null;
                 if (!request.Published)
                 {
+                    request.MeshStream?.Dispose(); request.MeshStream = null;
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
                     request.SpatialIndex = null;
@@ -440,7 +455,16 @@ public partial class HexasphereNode
         do
         {
             var chunk = Stopwatch.StartNew();
-            request.MeshChunksRemaining = request.Native.AppendMeshChunk(request.UploadMesh);
+            if (request.MeshStream != null)
+            {
+                if (!request.MeshStream.TryUpload(request.UploadMesh, Mesh.PrimitiveType.Triangles)) return;
+                if (--request.MeshChunksRemaining == 0)
+                {
+                    request.MeshStream.Dispose();
+                    request.MeshStream = null;
+                }
+            }
+            else request.MeshChunksRemaining = request.Native.AppendMeshChunk(request.UploadMesh);
             double elapsed = chunk.Elapsed.TotalMilliseconds;
             LastMeshBuildMilliseconds += elapsed;
             CompletedMeshUploadSurfaces++;

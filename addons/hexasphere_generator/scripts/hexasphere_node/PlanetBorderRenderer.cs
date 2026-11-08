@@ -21,9 +21,17 @@ public class PlanetBorderRenderer : System.IDisposable
     // nodes are created until BuildStaticBorders runs on the main thread.
     internal sealed record PreparedSurface(Vector3[] Positions, Vector2[] TilePairs);
     internal sealed record PreparedGeometry(PreparedSurface[] Surfaces,
-        NativeHexasphere Source, long SourceVersion, Godot.Collections.Array PackedSurfaces = null) : System.IDisposable
+        NativeHexasphere Source, long SourceVersion, Godot.Collections.Array PackedSurfaces = null,
+        SurfaceStream Stream = null) : System.IDisposable
     {
-        public int SurfaceCount => PackedSurfaces?.Count ?? Surfaces.Length;
+        public int SurfaceCount => Stream?.Count ?? PackedSurfaces?.Count ?? Surfaces.Length;
+
+        public bool TryAppendSurface(ArrayMesh mesh, int index)
+        {
+            if (Stream != null) return Stream.TryUpload(mesh, Mesh.PrimitiveType.Lines);
+            AppendSurface(mesh, index);
+            return true;
+        }
 
         public void AppendSurface(ArrayMesh mesh, int index)
         {
@@ -44,7 +52,11 @@ public class PlanetBorderRenderer : System.IDisposable
             Surfaces[index] = null;
         }
 
-        public void Dispose() => PackedSurfaces?.Dispose();
+        public void Dispose()
+        {
+            Stream?.Dispose();
+            PackedSurfaces?.Dispose();
+        }
     }
     private readonly record struct EdgeCandidate(Vector3 Start, Vector3 End, int VertexIndex, int Next);
 
@@ -126,6 +138,7 @@ public class PlanetBorderRenderer : System.IDisposable
             _uploadGeometry?.Dispose();
             _uploadGeometry = geometry;
             _nextSurface = 0;
+            geometry.Stream?.Start();
         }
         catch { geometry.Dispose(); mesh?.Dispose(); throw; }
     }
@@ -137,7 +150,7 @@ public class PlanetBorderRenderer : System.IDisposable
         do
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            _uploadGeometry.AppendSurface(_mesh, _nextSurface);
+            if (!_uploadGeometry.TryAppendSurface(_mesh, _nextSurface)) return;
             if (++_nextSurface == _uploadGeometry.SurfaceCount)
             {
                 _uploadGeometry.Dispose();
@@ -150,10 +163,16 @@ public class PlanetBorderRenderer : System.IDisposable
     }
 
     internal static PreparedGeometry PrepareForUpload(NativeHexasphere hexasphere, CancellationToken token,
-        int verticesPerSurface = int.MaxValue)
+        int verticesPerSurface = int.MaxValue, bool stream = false)
     {
         token.ThrowIfCancellationRequested();
         long version = hexasphere.GeometryVersion;
+        if (stream)
+        {
+            var borderStream = hexasphere.CreateBorderStream(verticesPerSurface);
+            if (borderStream != null) return new PreparedGeometry(null, hexasphere, version, Stream: borderStream);
+            token.ThrowIfCancellationRequested();
+        }
         var surfaces = hexasphere.PrepareBorderSurfaces(verticesPerSurface);
         if (surfaces != null)
         {

@@ -27,6 +27,9 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodGetBuildData = "get_build_data";
     private static readonly StringName MethodGetBorderData = "get_border_data";
     private static readonly StringName MethodPrepareBorderSurfaces = "_prepare_border_surfaces";
+    private static readonly StringName MethodBeginBorderStream = "_begin_border_stream";
+    private static readonly StringName MethodNextBorderSurface = "_next_border_stream_surface";
+    private static readonly StringName MethodMakeMeshSurface = "_make_streamed_mesh_surface";
     private static readonly StringName MethodBuildMesh = "build_mesh";
     private static readonly StringName MethodPrepareMesh = "prepare_mesh";
     private static readonly StringName MethodPrepareMeshChunks = "prepare_mesh_chunks";
@@ -226,6 +229,59 @@ public class NativeHexasphere : IDisposable
         {
             ThrowIfDisposed();
             return _supportsMeshChunks ? (int)_native.Call(MethodPrepareMeshChunks, tilesPerSurface) : 0;
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    internal SurfaceStream CreateMeshStream(int tileCount, int tilesPerSurface, bool indexed)
+    {
+        _semaphore.Wait();
+        try
+        {
+            ThrowIfDisposed();
+            if (!_native.HasMethod(MethodMakeMeshSurface)) return null;
+            int size = Math.Max(tilesPerSurface, (tileCount - 1) / (int)RenderingServer.MaxMeshSurfaces + 1);
+            long version = GeometryVersion;
+            return new SurfaceStream((tileCount - 1) / size + 1, index =>
+            {
+                int first = index * size;
+                return ReadStreamSurface(version, MethodMakeMeshSurface, first, Math.Min(size, tileCount - first), indexed);
+            });
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    internal SurfaceStream CreateBorderStream(int verticesPerSurface)
+    {
+        _semaphore.Wait();
+        try
+        {
+            ThrowIfDisposed();
+            // Custom wrappers can supply their own geometry through GetBorderData().
+            if (GetType() != typeof(NativeHexasphere) || !_native.HasMethod(MethodBeginBorderStream)
+                || !_native.HasMethod(MethodNextBorderSurface)) return null;
+            int count = (int)_native.Call(MethodBeginBorderStream, verticesPerSurface);
+            if (count < 0) throw new InvalidOperationException("Could not plan native border surfaces.");
+            if (count == 0) return null;
+            long version = GeometryVersion;
+            return new SurfaceStream(count, _ => ReadStreamSurface(version, MethodNextBorderSurface));
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    private Godot.Collections.Array ReadStreamSurface(long version, StringName method, params Variant[] args)
+    {
+        _semaphore.Wait();
+        try
+        {
+            ThrowIfDisposed();
+            if (version != GeometryVersion)
+                throw new InvalidOperationException("The mesh source changed during surface preparation.");
+            using var result = _native.Call(method, args);
+            var surface = result.AsGodotArray();
+            if (surface.Count > 0) return surface;
+            surface.Dispose();
+            throw new InvalidOperationException("Could not prepare a mesh surface.");
         }
         finally { _semaphore.Release(); }
     }
