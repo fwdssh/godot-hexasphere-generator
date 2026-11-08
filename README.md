@@ -19,7 +19,7 @@ Requires **Godot .NET 4.7+**, including for GDScript callers. Tested with **Godo
 3. Enable **Hexasphere Generator** in **Project Settings → Plugins**.
 4. Add a **Hexasphere** node, adjust its Inspector settings and run. Generation starts automatically.
 
-Windows x86-64 debug/release DLLs are included; keep both with `hexasphere.gdextension`. Linux, macOS and Windows ARM64 require [source builds](#native-build) and are unverified. Exported-game execution has not yet been checked.
+Windows x86-64 debug/release DLLs are included. Keep both with `hexasphere.gdextension`. Generation, batch recoloring and UV reopening were verified in a headless Windows x86-64 .NET release export. Linux, macOS and Windows ARM64 require source builds and are unverified. See [Native build](#native-build).
 
 ## Quick start
 
