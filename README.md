@@ -10,6 +10,11 @@ Generate spherical grids of hexagons with exactly **12 pentagons**. C++ geometry
 - Mesh uploads and initial visual setup spread across frames.
 - Detailed or raster UV maps with pan, zoom and tile picking.
 
+## Changes in 1.3.1
+
+- Faster generation and lower memory use for the built-in node, including a compact tile palette.
+- Tile-neighbor queries, batch recoloring by tile ID and open/close methods for the sphere's UV map.
+
 ## Installation
 
 Requires **Godot .NET 4.7+**, including for GDScript callers. Tested with **Godot 4.7.2 .NET**, Godot.NET.Sdk 4.7.2, a **.NET 9** target and Windows x86-64.
@@ -30,7 +35,7 @@ var sphere = new HexasphereNode { AutoGenerate = false, SubDivision = 100 };
 sphere.PlanetGenerated += count =>
 {
     GD.Print($"Ready: {count} tiles");
-    sphere.SetTileColor(0, Colors.Green);
+    sphere.SetTileColors(new[] { 0, 1 }, new[] { Colors.Green, Colors.Gold });
 };
 sphere.GenerationFailed += error => GD.PrintErr(error);
 AddChild(sphere);
@@ -44,7 +49,7 @@ func _ready() -> void:
     var sphere = $Hexasphere
     sphere.PlanetGenerated.connect(func(count):
         print("Ready: ", count)
-        sphere.SetTileColor(0, Color.GREEN))
+        sphere.SetTileColors(PackedInt32Array([0, 1]), PackedColorArray([Color.GREEN, Color.GOLD])))
     sphere.GenerationFailed.connect(func(error): push_error(error))
     sphere.GeneratePlanet()
 ```
@@ -81,9 +86,11 @@ Radius must be finite and positive, subdivision **1–1295**, and hex size **0.1
 | `TileClicked` | Tile index and **world-space** hit position |
 | `TileHovered`, `TileDeselected` | Hovered index (`-1` clears hover); no arguments for deselection |
 
-Use `GetTileCount()`, `GetTileCenter(id)`, `GetTilePoints(id)` and `FindTileByDirection(worldDirection)` to query cells. Centers and points are local to the sphere; use `ToGlobal()` for world positions.
+Use `GetTileCount()`, `GetTileCenter(id)`, `GetTilePoints(id)` and `FindTileByDirection(worldDirection)` to query cells. Centers and points are local to the sphere. Use `ToGlobal()` for world positions. `GetTileNeighbors(id)` returns adjacent tile IDs as an `int[]` in C# or a `PackedInt32Array` in GDScript. It returns an empty array for an invalid ID or before the sphere is ready.
 
-`SetTileColor(id, color)` and `SetAllTileColors(colors)` update default `HexCellData` cells and the UV palette. Short arrays leave remaining cells unchanged. For custom data, implement `ICellData` and override `CreateCellData`, `SetVisualController` and the controller's `GetColor`; see the [Earth example](addons/hexasphere_generator/scenes/sol_example/scripts/planets/Earth/Earth.cs).
+`SetTileColor(id, color)` changes one tile. `SetTileColors(ids, colors)` takes arrays of equal length and applies the batch with a single palette refresh. It skips invalid IDs and uses the last color for repeated IDs. `SetAllTileColors(colors)` applies colors in tile ID order starting at zero. A short array leaves the remaining tiles unchanged. These methods also update the open UV map.
+
+The color setters support the built-in palette and cells derived from `HexCellData`. For other custom cell data, implement `ICellData` and override `CreateCellData`, `SetVisualController` and the controller's `GetColor`. See the [Earth example](addons/hexasphere_generator/scenes/sol_example/scripts/planets/Earth/Earth.cs).
 
 ## UV map
 
@@ -93,7 +100,7 @@ Use `GetTileCount()`, `GetTileCenter(id)`, `GetTilePoints(id)` and `FindTileByDi
 2. Assign the sphere's `UvProjectorPath` to it.
 3. Configure Input Map actions `ui_toggle_uv_map` (for example, **1**) and `ui_close_uv_map` (**Escape**).
 
-Open a ready sphere's map with `sphere.OpenUvProjector()`. `PrepareUvProjector()` builds it without opening. For standalone prepared maps, use `projector.OpenProjection()` / `CloseProjection()`; `IsProjectionOpen` reports view state.
+`sphere.TryOpenUvMap()` returns whether the sphere's map is open after the call. The sphere must be ready and have a current 3D camera in its viewport. Use `sphere.CloseUvMap()` to close its map and `PrepareUvProjector()` to build it in advance. The existing `OpenUvProjector()` method is also available. For standalone prepared maps, use `projector.OpenProjection()` and `CloseProjection()`. `IsProjectionOpen` reports the view state.
 
 Set `ProjectionMode` to `Auto`, `DetailedMesh` or `Raster`. Auto uses raster above `MaxDetailedTileCount` (default 200,000). Raster quality presets or a custom `RasterResolution` control picking detail; `MapSize` controls displayed size independently. Cells smaller than a raster pixel may be difficult to pick. Initial map builds are synchronous.
 
@@ -123,3 +130,5 @@ Outputs go to `addons/hexasphere_generator/bin/`: `hexasphere.windows.template_d
 For Linux use `platform=linux`; for macOS use `platform=macos`. Mapped architectures are `x86_64` and `arm64`, built separately for each target. Windows ARM64 uses `platform=windows arch=arm64`. Linux outputs `libhexasphere.linux.<target>.<arch>.so`; macOS outputs `libhexasphere.macos.<target>.<arch>.dylib` (no universal binary supplied).
 
 For geometry without scene nodes, use `NativeHexasphere.Generate()` and `BuildMesh()` and dispose the wrapper when finished. Invalid input is rejected, disposal is synchronized, and direct `BuildMesh()` remains synchronous.
+
+For bulk neighbor queries in C#, `NativeHexasphere.GetTileNeighborData()` returns `(NeighborIndices, Offsets)`. Tile `id` uses the entries from `Offsets[id]` up to, but excluding, `Offsets[id + 1]`. The GDExtension exposes `get_tile_neighbors(id)` for individual lookups and `get_all_tile_neighbors()` for bulk data.
