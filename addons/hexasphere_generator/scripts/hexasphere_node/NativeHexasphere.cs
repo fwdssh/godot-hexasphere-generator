@@ -26,6 +26,7 @@ public class NativeHexasphere : IDisposable
     private static readonly StringName MethodGetTileFaces = "get_tile_faces";
     private static readonly StringName MethodGetBuildData = "get_build_data";
     private static readonly StringName MethodGetBorderData = "get_border_data";
+    private static readonly StringName MethodPrepareBorderSurfaces = "_prepare_border_surfaces";
     private static readonly StringName MethodBuildMesh = "build_mesh";
     private static readonly StringName MethodPrepareMesh = "prepare_mesh";
     private static readonly StringName MethodPrepareMeshChunks = "prepare_mesh_chunks";
@@ -225,6 +226,22 @@ public class NativeHexasphere : IDisposable
         {
             ThrowIfDisposed();
             return _supportsMeshChunks ? (int)_native.Call(MethodPrepareMeshChunks, tilesPerSurface) : 0;
+        }
+        finally { _semaphore.Release(); }
+    }
+
+    internal Godot.Collections.Array PrepareBorderSurfaces(int verticesPerSurface)
+    {
+        _semaphore.Wait();
+        try
+        {
+            ThrowIfDisposed();
+            // Preserve virtual border data supplied by custom native wrappers.
+            if (GetType() != typeof(NativeHexasphere) || !_native.HasMethod(MethodPrepareBorderSurfaces)) return null;
+            using var result = _native.Call(MethodPrepareBorderSurfaces, verticesPerSurface);
+            if (result.VariantType == Variant.Type.Nil)
+                throw new InvalidOperationException("Could not prepare native border surfaces.");
+            return result.AsGodotArray();
         }
         finally { _semaphore.Release(); }
     }

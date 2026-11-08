@@ -55,6 +55,7 @@ public partial class HexasphereVisualController : Node3D
 
     internal void SetPreparedBorders(PlanetBorderRenderer.PreparedGeometry geometry)
     {
+        _preparedBorders?.Dispose();
         _preparedBorders = geometry;
     }
 
@@ -105,25 +106,38 @@ public partial class HexasphereVisualController : Node3D
     virtual public void ApplyGenerated(ArrayMesh mesh, bool isBorderVisible, Shader colorsShader, Shader bordersShader)
     {
         var native = Hexasphere;
-        var borders = ReferenceEquals(_preparedBorders?.Source, native) ? _preparedBorders : null;
-        ClearGenerated();
-        Hexasphere = native;
-        _planetArrayMesh   = mesh;
-        _tileCount         = Hexasphere.GetTileCount();
-        _isBorderVisible   = isBorderVisible;
+        var borders = _preparedBorders;
+        _preparedBorders = null;
+        try
+        {
+            if (!ReferenceEquals(borders?.Source, native))
+            {
+                borders?.Dispose();
+                borders = null;
+            }
+            ClearGenerated();
+            Hexasphere = native;
+            _planetArrayMesh   = mesh;
+            _tileCount         = Hexasphere.GetTileCount();
+            _isBorderVisible   = isBorderVisible;
 
-        _planetMeshInstance      = new MeshInstance3D();
-        _planetMeshInstance.Mesh = _planetArrayMesh;
-        _planetMeshInstance.Name = "PlanetMesh";
-        AddChild(_planetMeshInstance);
+            _planetMeshInstance      = new MeshInstance3D();
+            _planetMeshInstance.Mesh = _planetArrayMesh;
+            _planetMeshInstance.Name = "PlanetMesh";
+            AddChild(_planetMeshInstance);
 
-        _colorsShader = colorsShader;
-        _bordersShader = bordersShader;
+            _colorsShader = colorsShader;
+            _bordersShader = bordersShader;
 
-        if (_isBorderVisible)
-            _borderRenderer = new PlanetBorderRenderer(this, borders);
+            if (_isBorderVisible)
+            {
+                _borderRenderer = new PlanetBorderRenderer(this, borders);
+                borders = null;
+            }
 
-        CallDeferred(nameof(InitializeGeneratedMaterial), _materialBuildId);
+            CallDeferred(nameof(InitializeGeneratedMaterial), _materialBuildId);
+        }
+        finally { borders?.Dispose(); }
     }
 
     private void InitializeGeneratedMaterial(long buildId)
@@ -185,7 +199,7 @@ public partial class HexasphereVisualController : Node3D
     {
         _materialBuildId++;
         StopVisualInitialization();
-        _preparedBorders = null;
+        _preparedBorders?.Dispose(); _preparedBorders = null;
         _borderRenderer?.Dispose();
         _borderRenderer = null;
         if (GodotObject.IsInstanceValid(_planetMeshInstance))

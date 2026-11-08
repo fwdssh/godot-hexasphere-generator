@@ -31,6 +31,7 @@ void NativeHexasphere::_bind_methods()
     ClassDB::bind_method(D_METHOD("get_tile_faces", "tile_idx"), &NativeHexasphere::get_tile_faces);
     ClassDB::bind_method(D_METHOD("get_build_data"), &NativeHexasphere::get_build_data);
     ClassDB::bind_method(D_METHOD("get_border_data"), &NativeHexasphere::get_border_data);
+    ClassDB::bind_method(D_METHOD("_prepare_border_surfaces", "vertices_per_surface"), &NativeHexasphere::prepare_border_surfaces);
     ClassDB::bind_method(D_METHOD("build_mesh"), &NativeHexasphere::build_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh"), &NativeHexasphere::prepare_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh_chunks", "tiles_per_chunk"), &NativeHexasphere::prepare_mesh_chunks);
@@ -281,6 +282,136 @@ Dictionary NativeHexasphere::get_border_data() const
     result["tile_line_counts"] = tileLineCounts;
 
     return result;
+}
+
+static bool same_border_point(const Vector3 &a, const Vector3 &b, double tolerance)
+{
+    return std::abs(double(a.x) - b.x) <= tolerance
+        && std::abs(double(a.y) - b.y) <= tolerance
+        && std::abs(double(a.z) - b.z) <= tolerance;
+}
+
+static int find_shared_border(const Tile &tile, const Tile &neighbour, double tolerance)
+{
+    const auto &points = tile.get_boundary_points();
+    const auto &other = neighbour.get_boundary_points();
+    const int count = tile.get_boundary_count();
+    const int other_count = neighbour.get_boundary_count();
+    int edge = -1;
+    for (int p = 0; p < count; ++p)
+    {
+        const Vector3 &next = points[(p + 1) % count];
+        for (int q = 0; q < other_count; ++q)
+        {
+            if (!same_border_point(points[p], other[q], tolerance)) continue;
+            const int forward = (q + 1) % other_count;
+            const int backward = (q + other_count - 1) % other_count;
+            if (!same_border_point(next, other[forward], tolerance)
+                && !same_border_point(next, other[backward], tolerance)) continue;
+            if (edge >= 0) return -1;
+            edge = p;
+        }
+    }
+    return edge;
+}
+
+Variant NativeHexasphere::prepare_border_surfaces(int vertices_per_surface) const
+{
+    if (!_hexasphere || vertices_per_surface <= 0) return Array();
+    try
+    {
+        const auto &tiles = _hexasphere->get_tiles();
+        const bool shared = _hexasphere->has_shared_tile_edges();
+        int edge_count = 0;
+        double scale = 0.0;
+        for (const Tile &tile : tiles)
+        {
+            const int count = tile.get_boundary_count();
+            edge_count += count;
+            if (!shared) continue;
+            if (count < 3 || count != tile.get_neighbour_count()) return Array();
+            for (int p = 0; p < count; ++p)
+            {
+                const Vector3 &pos = tile.get_boundary_points()[p];
+                scale = std::max({scale, std::abs(double(pos.x)), std::abs(double(pos.y)), std::abs(double(pos.z))});
+            }
+        }
+        if (edge_count == 0 || (shared && (edge_count % 2 != 0 || scale == 0.0))) return Array();
+
+        const int total_vertices = shared ? edge_count : edge_count * 2;
+        const int min_size = (total_vertices - 1) / RenderingServer::MAX_MESH_SURFACES + 1;
+        const int64_t requested = std::max(min_size, vertices_per_surface);
+        const int64_t chunk_size = requested + requested % 2;
+        const int surface_count = static_cast<int>((total_vertices - 1) / chunk_size + 1);
+        Array surfaces;
+        if (surfaces.resize(surface_count) != OK) return Variant();
+
+        // Keep the original tile/edge order and use the first owner's endpoints.
+        // If the topology does not identify every shared edge, use the compatibility path.
+        const double tolerance = scale * 0.000001;
+        int surface_index = 0;
+        int remaining = total_vertices;
+        int offset = 0;
+        PackedVector3Array positions;
+        PackedVector2Array owners;
+        Vector3 *position_data = nullptr;
+        Vector2 *owner_data = nullptr;
+        for (int t = 0; t < static_cast<int>(tiles.size()); ++t)
+        {
+            const Tile &tile = tiles[t];
+            const auto &points = tile.get_boundary_points();
+            const int count = tile.get_boundary_count();
+            std::array<int, 6> edge_owners;
+            edge_owners.fill(-1);
+            if (shared)
+            {
+                const auto *neighbours = tile.get_neighbours_data();
+                for (int n = 0; n < count; ++n)
+                {
+                    const int other = neighbours[n];
+                    const int edge = find_shared_border(tile, tiles[other], tolerance);
+                    if (edge < 0 || edge_owners[edge] >= 0) return Array();
+                    edge_owners[edge] = other;
+                }
+            }
+
+            for (int p = 0; p < count; ++p)
+            {
+                const int other = edge_owners[p];
+                if (shared && other < t) continue;
+                if (remaining == 0) return Array();
+                if (offset == 0)
+                {
+                    const int size = static_cast<int>(std::min<int64_t>(remaining, chunk_size));
+                    if (positions.resize(size) != OK || owners.resize(size) != OK) return Variant();
+                    position_data = positions.ptrw();
+                    owner_data = owners.ptrw();
+                }
+                position_data[offset] = points[p] * 1.0001f;
+                position_data[offset + 1] = points[(p + 1) % count] * 1.0001f;
+                owner_data[offset] = Vector2(t, other);
+                owner_data[offset + 1] = owner_data[offset];
+                offset += 2;
+                remaining -= 2;
+                if (offset == positions.size())
+                {
+                    Array arrays;
+                    if (arrays.resize(Mesh::ARRAY_MAX) != OK) return Variant();
+                    arrays[Mesh::ARRAY_VERTEX] = positions;
+                    arrays[Mesh::ARRAY_TEX_UV2] = owners;
+                    surfaces[surface_index++] = arrays;
+                    positions = PackedVector3Array();
+                    owners = PackedVector2Array();
+                    offset = 0;
+                }
+            }
+        }
+        return remaining == 0 ? surfaces : Array();
+    }
+    catch (...)
+    {
+        return Variant();
+    }
 }
 
 static Vector3 mesh_normal(const Vector3 &pos)

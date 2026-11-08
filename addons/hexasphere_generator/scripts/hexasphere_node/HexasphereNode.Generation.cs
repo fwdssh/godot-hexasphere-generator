@@ -193,7 +193,8 @@ public partial class HexasphereNode
                     request.UploadSource = null;
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
-                    request.SpatialIndex = null; request.Borders = null;
+                    request.SpatialIndex = null;
+                    request.Borders?.Dispose(); request.Borders = null;
                     request.PreparedColors = null;
                 }
                 if (!request.WorkerStarted) request.DisposeCancellation();
@@ -292,7 +293,7 @@ public partial class HexasphereNode
                 request.Token.ThrowIfCancellationRequested();
                 request.SpatialIndex = PrepareSpatialIndex(request.Centers, request.Token);
                 if (request.Settings.Borders)
-                    request.Borders = PlanetBorderRenderer.PrepareGeometry(request.Native, request.Token,
+                    request.Borders = PlanetBorderRenderer.PrepareForUpload(request.Native, request.Token,
                         request.Settings.MeshUploadBudgetMilliseconds > 0
                             ? (int)Math.Min((long)request.Settings.MeshUploadTilesPerSurface * 6, int.MaxValue) : int.MaxValue);
                 request.Token.ThrowIfCancellationRequested();
@@ -317,7 +318,8 @@ public partial class HexasphereNode
                 {
                     request.Native?.Dispose(); request.Native = null;
                     request.Centers = null; request.Cells = null;
-                    request.SpatialIndex = null; request.Borders = null;
+                    request.SpatialIndex = null;
+                    request.Borders?.Dispose(); request.Borders = null;
                 }
                 request.DisposeCancellation();
             }

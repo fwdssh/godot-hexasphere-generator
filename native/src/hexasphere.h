@@ -47,6 +47,7 @@ public:
 
     const std::vector<Tile> &get_tiles() const { return _tiles; }
     int get_tile_count() const { return static_cast<int>(_tiles.size()); }
+    bool has_shared_tile_edges() const { return _hexSize == 1.0f; }
 
 private:
     std::vector<int32_t> construct_icosahedron();

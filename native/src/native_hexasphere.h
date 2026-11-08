@@ -32,6 +32,7 @@ private:
     int _next_mesh_chunk = 0;
 
     void clear_mesh_preparation();
+    Variant prepare_border_surfaces(int vertices_per_surface) const;
     int prepare_indexed_mesh_chunks(int tiles_per_chunk);
     int prepare_mesh_chunk_arrays(int tiles_per_chunk, bool indexed);
     Array make_indexed_mesh_arrays(int first_tile, int tile_count) const;

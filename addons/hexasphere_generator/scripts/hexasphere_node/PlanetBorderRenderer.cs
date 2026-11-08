@@ -13,7 +13,7 @@ public class PlanetBorderRenderer : System.IDisposable
     private Color _borderColor;
     private ArrayMesh _mesh;
     private PreparedGeometry _preparedGeometry;
-    private PreparedSurface[] _uploadSurfaces;
+    private PreparedGeometry _uploadGeometry;
     private int _nextSurface;
     private bool _visible = true;
 
@@ -21,11 +21,35 @@ public class PlanetBorderRenderer : System.IDisposable
     // nodes are created until BuildStaticBorders runs on the main thread.
     internal sealed record PreparedSurface(Vector3[] Positions, Vector2[] TilePairs);
     internal sealed record PreparedGeometry(PreparedSurface[] Surfaces,
-        NativeHexasphere Source, long SourceVersion);
+        NativeHexasphere Source, long SourceVersion, Godot.Collections.Array PackedSurfaces = null) : System.IDisposable
+    {
+        public int SurfaceCount => PackedSurfaces?.Count ?? Surfaces.Length;
+
+        public void AppendSurface(ArrayMesh mesh, int index)
+        {
+            if (PackedSurfaces != null)
+            {
+                using var arrays = PackedSurfaces[index].AsGodotArray();
+                mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
+                PackedSurfaces[index] = default;
+                return;
+            }
+
+            var surface = Surfaces[index];
+            using var expanded = new Godot.Collections.Array();
+            expanded.Resize((int)Mesh.ArrayType.Max);
+            expanded[(int)Mesh.ArrayType.Vertex] = surface.Positions;
+            expanded[(int)Mesh.ArrayType.TexUV2] = surface.TilePairs;
+            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, expanded);
+            Surfaces[index] = null;
+        }
+
+        public void Dispose() => PackedSurfaces?.Dispose();
+    }
     private readonly record struct EdgeCandidate(Vector3 Start, Vector3 End, int VertexIndex, int Next);
 
-    internal bool IsUploading => _uploadSurfaces != null;
-    internal bool HasSingleUploadSurface => _uploadSurfaces?.Length == 1;
+    internal bool IsUploading => _uploadGeometry != null;
+    internal bool HasSingleUploadSurface => _uploadGeometry?.SurfaceCount == 1;
 
     /// <summary>
     /// Creates a new border renderer and adds the border mesh as a child of the specified parent node.
@@ -69,12 +93,17 @@ public class PlanetBorderRenderer : System.IDisposable
         _preparedGeometry = null;
         // A custom finalization hook may replace or regenerate the native instance.
         if (geometry != null && (!ReferenceEquals(geometry.Source, hexasphere)
-            || geometry.SourceVersion != hexasphere.GeometryVersion)) geometry = null;
-        geometry ??= PrepareGeometry(hexasphere, CancellationToken.None);
+            || geometry.SourceVersion != hexasphere.GeometryVersion))
+        {
+            geometry.Dispose();
+            geometry = null;
+        }
+        geometry ??= PrepareForUpload(hexasphere, CancellationToken.None);
 
-        var mesh = new ArrayMesh();
+        ArrayMesh mesh = null;
         try
         {
+            mesh = new ArrayMesh();
             var shader = borderShader;
             _borderMaterial?.Dispose();
             _borderMaterial = new ShaderMaterial();
@@ -94,10 +123,11 @@ public class PlanetBorderRenderer : System.IDisposable
             _mesh = mesh;
             _bordersMeshInstance.MaterialOverride = _borderMaterial;
             _bordersMeshInstance.Visible = false;
-            _uploadSurfaces = geometry.Surfaces;
+            _uploadGeometry?.Dispose();
+            _uploadGeometry = geometry;
             _nextSurface = 0;
         }
-        catch { mesh.Dispose(); throw; }
+        catch { geometry.Dispose(); mesh?.Dispose(); throw; }
     }
 
     internal void AdvanceUpload(double budgetMilliseconds)
@@ -107,22 +137,31 @@ public class PlanetBorderRenderer : System.IDisposable
         do
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            var surface = _uploadSurfaces[_nextSurface];
-            using var arrays = new Godot.Collections.Array();
-            arrays.Resize((int)Mesh.ArrayType.Max);
-            arrays[(int)Mesh.ArrayType.Vertex] = surface.Positions;
-            arrays[(int)Mesh.ArrayType.TexUV2] = surface.TilePairs;
-            var mesh = _mesh;
-            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
-            _uploadSurfaces[_nextSurface++] = null;
-            if (_nextSurface == _uploadSurfaces.Length)
+            _uploadGeometry.AppendSurface(_mesh, _nextSurface);
+            if (++_nextSurface == _uploadGeometry.SurfaceCount)
             {
-                _uploadSurfaces = null;
+                _uploadGeometry.Dispose();
+                _uploadGeometry = null;
                 _bordersMeshInstance.Visible = _visible;
                 return;
             }
             if (budgetMilliseconds > 0 && frame.Elapsed.TotalMilliseconds + clock.Elapsed.TotalMilliseconds >= budgetMilliseconds) return;
         } while (true);
+    }
+
+    internal static PreparedGeometry PrepareForUpload(NativeHexasphere hexasphere, CancellationToken token,
+        int verticesPerSurface = int.MaxValue)
+    {
+        token.ThrowIfCancellationRequested();
+        long version = hexasphere.GeometryVersion;
+        var surfaces = hexasphere.PrepareBorderSurfaces(verticesPerSurface);
+        if (surfaces != null)
+        {
+            if (!token.IsCancellationRequested && surfaces.Count > 0)
+                return new PreparedGeometry(null, hexasphere, version, surfaces);
+            surfaces.Dispose();
+        }
+        return PrepareGeometry(hexasphere, token, verticesPerSurface);
     }
 
     internal static PreparedGeometry PrepareGeometry(NativeHexasphere hexasphere, CancellationToken token, int verticesPerSurface = int.MaxValue)
@@ -259,8 +298,8 @@ public class PlanetBorderRenderer : System.IDisposable
     /// <summary>Releases the border node, mesh and material owned by this renderer.</summary>
     public void Dispose()
     {
-        _preparedGeometry = null;
-        _uploadSurfaces = null;
+        _preparedGeometry?.Dispose(); _preparedGeometry = null;
+        _uploadGeometry?.Dispose(); _uploadGeometry = null;
         if (GodotObject.IsInstanceValid(_bordersMeshInstance))
         {
             _bordersMeshInstance.Mesh = null;
