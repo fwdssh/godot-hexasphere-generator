@@ -51,8 +51,9 @@ public:
 
 private:
     std::vector<int32_t> construct_icosahedron();
-    int32_t cache_point(const Vector3 &position);
-    void subdivide_icosahedron(const std::vector<int32_t> &ico_faces);
+    int32_t add_point(const Vector3 &position);
+    int32_t cache_point(const Vector3 &raw_position);
+    void subdivide_icosahedron(const std::vector<int32_t> &ico_faces, bool cache_interior);
     void construct_tiles();
 };
 

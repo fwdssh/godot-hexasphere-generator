@@ -37,10 +37,32 @@ Hexasphere::Hexasphere(float radius, int divisions, float hexSize)
 
     int estimatedPoints = 10 * divisions * divisions + 2;
     _points.reserve(estimatedPoints);
-    _pointGrid.reserve(estimatedPoints);
 
-    auto ico_faces = construct_icosahedron();
-    subdivide_icosahedron(ico_faces);
+    // Projected interior lattice points are separated by more than 3e-4 radii
+    // even at the maximum subdivision. Only seams can match the 1e-5 tolerance.
+    // Keep the full lookup where float scaling could compromise this separation.
+    bool cache_interior = radius < 1e-20f || radius > 1e20f;
+    for (;;)
+    {
+        _pointGrid.reserve(cache_interior ? estimatedPoints : 12 + 30 * (divisions - 1));
+        try
+        {
+            auto ico_faces = construct_icosahedron();
+            subdivide_icosahedron(ico_faces, cache_interior);
+            if (cache_interior || _points.size() == static_cast<size_t>(estimatedPoints))
+                break;
+        }
+        catch (const std::invalid_argument &)
+        {
+            if (cache_interior) throw;
+        }
+
+        // Retry with the original matching rules if seam topology is unexpected.
+        _points.clear();
+        _faces.clear();
+        _pointGrid.clear();
+        cache_interior = true;
+    }
     // The point lookup is only needed during subdivision.
     _pointGrid = decltype(_pointGrid)();
     construct_tiles();
@@ -95,14 +117,25 @@ std::vector<int32_t> Hexasphere::construct_icosahedron()
     };
 }
 
-int32_t Hexasphere::cache_point(const Vector3 &raw_position)
+static Vector3 project_point(const Vector3 &raw_position, float radius)
 {
     const double length = std::hypot(double(raw_position.x), double(raw_position.y), double(raw_position.z));
     if (!std::isfinite(length) || length == 0.0)
         throw std::invalid_argument("Cannot project a degenerate sphere point");
-    Vector3 position(raw_position.x / length * _radius,
-        raw_position.y / length * _radius, raw_position.z / length * _radius);
+    return Vector3(raw_position.x / length * radius,
+        raw_position.y / length * radius, raw_position.z / length * radius);
+}
 
+int32_t Hexasphere::add_point(const Vector3 &position)
+{
+    const auto index = static_cast<int32_t>(_points.size());
+    _points.emplace_back(position, index);
+    return index;
+}
+
+int32_t Hexasphere::cache_point(const Vector3 &raw_position)
+{
+    const Vector3 position = project_point(raw_position, _radius);
     Vector3i gridPos(
         static_cast<int>(std::round(position.x * _gridScale)),
         static_cast<int>(std::round(position.y * _gridScale)),
@@ -118,13 +151,12 @@ int32_t Hexasphere::cache_point(const Vector3 &raw_position)
                         return it->second;
             }
 
-    int32_t idx = static_cast<int32_t>(_points.size());
-    _points.emplace_back(position, idx);
+    const int32_t idx = add_point(position);
     _pointGrid[gridPos] = idx;
     return idx;
 }
 
-void Hexasphere::subdivide_icosahedron(const std::vector<int32_t> &ico_faces)
+void Hexasphere::subdivide_icosahedron(const std::vector<int32_t> &ico_faces, bool cache_interior)
 {
     int estimatedFaces = 20 * _divisions * _divisions;
     _faces.reserve(_faces.size() + estimatedFaces);
@@ -141,25 +173,36 @@ void Hexasphere::subdivide_icosahedron(const std::vector<int32_t> &ico_faces)
         _points[p3].assign_face_index(faceIdx);
     };
 
+    const std::function<int32_t(const Vector3 &)> cache_fn = [this](const Vector3 &pos)
+    {
+        return cache_point(pos);
+    };
+    const std::function<int32_t(const Vector3 &)> append_fn = [this](const Vector3 &pos)
+    {
+        return add_point(project_point(pos, _radius));
+    };
+
+    std::vector<int32_t> leftSide, rightSide, previousRow, bottomRow;
+    leftSide.reserve(_divisions + 1);
+    rightSide.reserve(_divisions + 1);
+    previousRow.reserve(_divisions + 1);
+    bottomRow.reserve(_divisions + 1);
+
     for (int32_t icoFaceIdx : ico_faces)
     {
         const Face &icoFace = _faces[icoFaceIdx];
         int32_t fp[3] = {icoFace.get_point_indices()[0], icoFace.get_point_indices()[1], icoFace.get_point_indices()[2]};
 
-        std::vector<int32_t> bottomRow = {fp[0]};
-
-        auto cache_fn = [this](const Vector3 &pos) -> int32_t
-        {
-            return cache_point(pos);
-        };
-
-        std::vector<int32_t> leftSide = _points[fp[0]].subdivide(fp[1], _divisions, cache_fn, _points);
-        std::vector<int32_t> rightSide = _points[fp[0]].subdivide(fp[2], _divisions, cache_fn, _points);
+        previousRow.assign(1, fp[0]);
+        _points[fp[0]].subdivide(fp[1], _divisions, cache_fn, _points, leftSide);
+        _points[fp[0]].subdivide(fp[2], _divisions, cache_fn, _points, rightSide);
 
         for (int i = 1; i <= _divisions; i++)
         {
-            std::vector<int32_t> previousRow = std::move(bottomRow);
-            bottomRow = _points[leftSide[i]].subdivide(rightSide[i], i, cache_fn, _points);
+            // Row endpoints are already cached by the sides. Only the final row
+            // is itself an edge of the base icosahedron.
+            const auto &store = cache_interior || i == _divisions ? cache_fn : append_fn;
+            _points[leftSide[i]].subdivide(rightSide[i], i, store, _points, bottomRow);
 
             make_face(previousRow[0], bottomRow[0], bottomRow[1]);
             for (int j = 1; j < i; j++)
@@ -167,6 +210,7 @@ void Hexasphere::subdivide_icosahedron(const std::vector<int32_t> &ico_faces)
                 make_face(previousRow[j], bottomRow[j], bottomRow[j + 1]);
                 make_face(previousRow[j - 1], previousRow[j], bottomRow[j]);
             }
+            previousRow.swap(bottomRow);
         }
     }
 }

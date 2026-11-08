@@ -37,7 +37,8 @@ public:
         _faceIndices[_faceCount++] = faceIdx;
     }
 
-    std::vector<int32_t> subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& cache_func, const std::vector<Point>& points) const;
+    void subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& store_point,
+        const std::vector<Point>& points, std::vector<int32_t>& segments) const;
     int get_ordered_faces(const std::vector<Face>& faces, std::array<int32_t, 6>& ordered) const;
 
     static bool is_overlapping(const Point& a, const Point& b, double epsilon);

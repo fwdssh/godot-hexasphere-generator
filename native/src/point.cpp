@@ -9,10 +9,10 @@ Point::Point(const Vector3& position, int localId)
 {
 }
 
-std::vector<int32_t> Point::subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& cache_func, const std::vector<Point>& points) const
+void Point::subdivide(int32_t targetIdx, int count, const std::function<int32_t(const Vector3&)>& store_point,
+    const std::vector<Point>& points, std::vector<int32_t>& segments) const
 {
-    std::vector<int32_t> segments;
-    segments.reserve(static_cast<size_t>(count) + 2);
+    segments.clear();
     segments.push_back(_id);
 
     const Vector3 startPos = _position;
@@ -27,11 +27,10 @@ std::vector<int32_t> Point::subdivide(int32_t targetIdx, int count, const std::f
             startPos.x * oneMinusT + targetPos.x * t,
             startPos.y * oneMinusT + targetPos.y * t,
             startPos.z * oneMinusT + targetPos.z * t);
-        segments.push_back(cache_func(pos));
+        segments.push_back(store_point(pos));
     }
 
     segments.push_back(targetIdx);
-    return segments;
 }
 
 int Point::get_ordered_faces(const std::vector<Face>& faces, std::array<int32_t, 6>& ordered) const
