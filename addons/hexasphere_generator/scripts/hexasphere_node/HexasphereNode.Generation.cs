@@ -304,7 +304,7 @@ public partial class HexasphereNode
                 }
                 if (request.MeshChunksRemaining == 0) request.Native.PrepareMesh();
                 request.Token.ThrowIfCancellationRequested();
-                request.SpatialIndex = PrepareSpatialIndex(request.Centers, request.Token);
+                request.SpatialIndex = PrepareSpatialIndex(request.Centers, request.Token, UsesCompactSpatialIndex);
                 if (request.Settings.Borders)
                     request.Borders = PlanetBorderRenderer.PrepareForUpload(request.Native, request.Token,
                         request.Settings.MeshUploadBudgetMilliseconds > 0

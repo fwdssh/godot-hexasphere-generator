@@ -1,5 +1,7 @@
 using Godot;
+using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Godot.Hexasphere;
 /// <summary>
 /// Main node for generating and interacting with a hexagonal sphere (hexasphere).
@@ -113,6 +115,10 @@ public partial class HexasphereNode : Node3D
 
     private float _bucketScale = 5f;
     protected Dictionary<Vector3I, List<int>> _spatialBuckets;
+    private CompactSpatialBuckets _compactSpatialBuckets;
+
+    // Managed subclasses can read or modify the protected dictionary.
+    private bool UsesCompactSpatialIndex => GetType() == typeof(HexasphereNode);
 
     /// <summary>Returns true once the planet has been fully generated and is ready for interaction.</summary>
     public bool IsReady => _planetReady;
@@ -179,6 +185,7 @@ public partial class HexasphereNode : Node3D
         _tileColors = null;
         _tileDirs = null;
         _spatialBuckets = null;
+        _compactSpatialBuckets = null;
         _pendingHexasphere = null;
         _pendingCenters = null;
         _pendingCellDatas = null;
@@ -515,17 +522,18 @@ virtual protected void OnShaderReady()
         // Keep the virtual hook on the main thread. Custom calls with different
         // centers still build their own index, as they did before preparation.
         if (!MatchesPreparedIndex(prepared, centers))
-            prepared = PrepareSpatialIndex(centers, System.Threading.CancellationToken.None);
+            prepared = PrepareSpatialIndex(centers, System.Threading.CancellationToken.None, UsesCompactSpatialIndex);
         _tileDirs = prepared.Directions;
         _bucketScale = prepared.Scale;
         _spatialBuckets = prepared.Buckets;
+        _compactSpatialBuckets = prepared.CompactBuckets;
     }
 
     private static bool MatchesPreparedIndex(PreparedSpatialIndex prepared, Vector3[] centers)
     {
         if (prepared == null || !ReferenceEquals(prepared.Centers, centers)) return false;
         // Overrides may edit the supplied array in place before calling base.
-        // Checking directions avoids rebuilding the dictionary for unchanged data
+        // Checking directions avoids rebuilding the index for unchanged data
         // while retaining the old behavior for transformed centers.
         for (int i = 0; i < centers.Length; i++)
             if (centers[i].Normalized() != prepared.Directions[i]) return false;
@@ -543,15 +551,28 @@ virtual protected void OnShaderReady()
         );
     }
 
-    private sealed record PreparedSpatialIndex(Vector3[] Centers, Vector3[] Directions,
-        float Scale, Dictionary<Vector3I, List<int>> Buckets);
+    private struct BucketRange
+    {
+        public int Start;
+        public int Count;
+    }
 
-    private static PreparedSpatialIndex PrepareSpatialIndex(Vector3[] centers, System.Threading.CancellationToken token)
+    private sealed record CompactSpatialBuckets(Dictionary<Vector3I, int> Indices, BucketRange[] Ranges, int[] TileIds);
+
+    private sealed record PreparedSpatialIndex(Vector3[] Centers, Vector3[] Directions,
+        float Scale, Dictionary<Vector3I, List<int>> Buckets, CompactSpatialBuckets CompactBuckets);
+
+    private static PreparedSpatialIndex PrepareSpatialIndex(Vector3[] centers, System.Threading.CancellationToken token,
+        bool useCompact)
     {
         token.ThrowIfCancellationRequested();
         var directions = new Vector3[centers.Length];
         // Preserve the existing bucket density and quantization for picking.
         float scale = Mathf.Sqrt(centers.Length) * 0.35f;
+        if (useCompact)
+            return new PreparedSpatialIndex(centers, directions, scale, null,
+                BuildCompactBuckets(centers, directions, scale, token));
+
         var buckets = new Dictionary<Vector3I, List<int>>();
         for (int i = 0; i < centers.Length; i++)
         {
@@ -566,12 +587,54 @@ virtual protected void OnShaderReady()
             list.Add(i);
         }
         token.ThrowIfCancellationRequested();
-        return new PreparedSpatialIndex(centers, directions, scale, buckets);
+        return new PreparedSpatialIndex(centers, directions, scale, buckets, null);
+    }
+
+    private static CompactSpatialBuckets BuildCompactBuckets(Vector3[] centers, Vector3[] directions,
+        float scale, System.Threading.CancellationToken token)
+    {
+        var indices = new Dictionary<Vector3I, int>();
+        var counts = new List<BucketRange>();
+        var tileBuckets = new int[centers.Length];
+        for (int i = 0; i < centers.Length; i++)
+        {
+            if ((i & 1023) == 0) token.ThrowIfCancellationRequested();
+            directions[i] = centers[i].Normalized();
+            ref int bucket = ref CollectionsMarshal.GetValueRefOrAddDefault(indices, Quantize(directions[i], scale), out bool exists);
+            if (!exists)
+            {
+                bucket = counts.Count;
+                counts.Add(default);
+            }
+            tileBuckets[i] = bucket;
+            CollectionsMarshal.AsSpan(counts)[bucket].Count++;
+        }
+
+        var ranges = counts.ToArray();
+        int offset = 0;
+        for (int i = 0; i < ranges.Length; i++)
+        {
+            if ((i & 1023) == 0) token.ThrowIfCancellationRequested();
+            ranges[i].Start = offset;
+            offset += ranges[i].Count;
+            ranges[i].Count = 0;
+        }
+
+        var tileIds = new int[centers.Length];
+        for (int i = 0; i < tileBuckets.Length; i++)
+        {
+            if ((i & 1023) == 0) token.ThrowIfCancellationRequested();
+            ref var range = ref ranges[tileBuckets[i]];
+            tileIds[range.Start + range.Count++] = i;
+        }
+        token.ThrowIfCancellationRequested();
+        return new CompactSpatialBuckets(indices, ranges, tileIds);
     }
 
     virtual protected int FindTileIndexByDirection(Vector3 direction)
     {
-        if (_tileDirs == null || _spatialBuckets == null) return -1;
+        var compact = _compactSpatialBuckets;
+        if (_tileDirs == null || (compact == null && _spatialBuckets == null)) return -1;
 
         Vector3 normDir = direction.Normalized();
         var key = Quantize(normDir);
@@ -584,21 +647,32 @@ virtual protected void OnShaderReady()
         for (int dz = -1; dz <= 1; dz++)
         {
             var neighbor = new Vector3I(key.X + dx, key.Y + dy, key.Z + dz);
-            if (_spatialBuckets.TryGetValue(neighbor, out var list))
+            if (compact != null)
             {
-                foreach (var idx in list)
-                {
-                    float d = normDir.Dot(_tileDirs[idx]);
-                    if (d > maxDot)
-                    {
-                        maxDot = d;
-                        bestIndex = idx;
-                    }
-                }
+                if (!compact.Indices.TryGetValue(neighbor, out int bucket)) continue;
+                var range = compact.Ranges[bucket];
+                // Tile IDs are in insertion order, preserving ties within a bucket.
+                foreach (int idx in compact.TileIds.AsSpan(range.Start, range.Count))
+                    Consider(idx);
+            }
+            else if (_spatialBuckets.TryGetValue(neighbor, out var list))
+            {
+                foreach (int idx in list)
+                    Consider(idx);
             }
         }
 
         return bestIndex;
+
+        void Consider(int idx)
+        {
+            float d = normDir.Dot(_tileDirs[idx]);
+            if (d > maxDot)
+            {
+                maxDot = d;
+                bestIndex = idx;
+            }
+        }
     }
 
     /// <summary>
