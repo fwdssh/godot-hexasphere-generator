@@ -19,7 +19,7 @@ Requires **Godot .NET 4.7+**, including for GDScript callers. Tested with **Godo
 3. Enable **Hexasphere Generator** in **Project Settings → Plugins**.
 4. Add a **Hexasphere** node, adjust its Inspector settings and run. Generation starts automatically.
 
-Windows x86-64 debug/release DLLs are included. Keep both with `hexasphere.gdextension`. Generation, batch recoloring and UV reopening were verified in a headless Windows x86-64 .NET release export. Linux, macOS and Windows ARM64 require source builds and are unverified. See [Native build](#native-build).
+Windows x86-64 debug/release DLLs are included. Keep both with `hexasphere.gdextension`. Generation, batch recoloring and UV reopening were verified in a headless Windows x86-64 .NET release export. Linux, macOS and Windows ARM64 require source builds and corresponding manifest entries. See [Native build](#native-build).
 
 ## Quick start
 
@@ -122,7 +122,9 @@ python -m SCons platform=windows arch=x86_64 target=template_release -j4
 
 Outputs go to `addons/hexasphere_generator/bin/`: `hexasphere.windows.template_debug.x86_64.dll` and `hexasphere.windows.template_release.x86_64.dll`. Keep filenames aligned with `hexasphere.gdextension`; variants do not overwrite one another.
 
-For Linux use `platform=linux`; for macOS use `platform=macos`. Mapped architectures are `x86_64` and `arm64`, built separately for each target. Windows ARM64 uses `platform=windows arch=arm64`. Linux outputs `libhexasphere.linux.<target>.<arch>.so`; macOS outputs `libhexasphere.macos.<target>.<arch>.dylib` (no universal binary supplied).
+Use `platform=linux` for Linux and `platform=macos` for macOS. Build each target separately for `x86_64` or `arm64`. Windows ARM64 uses `platform=windows arch=arm64`. Linux outputs `libhexasphere.linux.<target>.<arch>.so`. macOS outputs an architecture-specific `libhexasphere.macos.<target>.<arch>.dylib`.
+
+These platforms are unverified. After building, add `<platform>.debug.<arch>` and `<platform>.release.<arch>` under `[libraries]` in `hexasphere.gdextension` for the binaries you built. Point each entry to the matching `res://addons/hexasphere_generator/bin/` file.
 
 For geometry without scene nodes, use `NativeHexasphere.Generate()` and `BuildMesh()` and dispose the wrapper when finished. Invalid input is rejected, disposal is synchronized, and direct `BuildMesh()` remains synchronous.
 
